@@ -1,5 +1,5 @@
 build:
-	go build -o resonate-worker .
+	go build -o resonate-worker ./cmd/resonate-worker
 	go build -o resonatectl ./cmd/resonatectl
 	go build -o resonate-controller ./cmd/resonate-controller
 
@@ -17,12 +17,14 @@ fmt-check:
 vet:
 	go vet ./...
 
-IMAGE ?= jecklgamis/resonate-worker
+WORKER_IMAGE ?= jecklgamis/resonate-worker
 CONTROLLER_IMAGE ?= jecklgamis/resonate-controller
 TAG ?= main
 
-image:
-	docker build -f deployment/docker/worker/Dockerfile -t $(IMAGE):$(TAG) .
+images: image-worker image-controller
+
+image-worker:
+	docker build -f deployment/docker/worker/Dockerfile -t $(WORKER_IMAGE):$(TAG) .
 
 image-controller:
 	docker build -f deployment/docker/controller/Dockerfile -t $(CONTROLLER_IMAGE):$(TAG) .
@@ -30,4 +32,4 @@ image-controller:
 run: build
 	./resonate-worker
 
-.PHONY: build test check fmt fmt-check vet image image-controller run
+.PHONY: build test check fmt fmt-check vet images image-worker image-controller run
