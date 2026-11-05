@@ -200,5 +200,21 @@ curl -fsS "${auth[@]}" "$WORKER/task/$id/report.html" -o report.html   # keep as
 [ "$status" = done ] || { curl -fsS "${auth[@]}" "$WORKER/task/$id/log"; exit 1; }
 ```
 
-To run the same scenario against several workers at once, use
-[`resonatectl`](resonatectl.md) instead of scripting this loop per worker.
+## Running on Many Workers
+
+Everything above talks to one worker. To run the same scenario on several, register
+the workers with a [controller](controller.md) and use [`resonatectl`](resonatectl.md)
+instead of scripting this loop per worker:
+
+```sh
+export RESONATE_CONTROLLER=https://controller.example.com CONTROLLER_TOKEN=...
+resonatectl workers                                  # the registered workers
+resonatectl run scenario.yaml                        # run on all of them
+resonatectl run --label region=sgp1 --data users.csv scenario.yaml
+```
+
+The controller submits to each worker's `POST /task` for you, polls them, and
+`resonatectl` saves every worker's `report.html`, `report.json`, `results.jsonl` and
+`log` under `resonatectl-run-<timestamp>/<worker>/`. A feeder passed with `--data`
+is uploaded to every worker the same way as in [Data files](#data-files-feeders).
+Reports are never combined.

@@ -1,7 +1,21 @@
 # Architecture
 
-resonate-worker is a small Go HTTP server that runs `resonate run` as a
-subprocess, one per submitted task.
+resonate-fleet is three small Go programs:
+
+- **resonate-worker** is an HTTP server that runs `resonate run` as a subprocess,
+  one per submitted task. Everything below up to *Components* is about the worker.
+- **resonate-controller** keeps a registry of workers (they register and send
+  heartbeats) and fans a scenario out to them over the workers' public API.
+- **resonatectl** is a command-line client for the controller.
+
+```
+resonatectl ──▶ controller ──POST /task──▶ worker ┐
+                    ▲  ▲                  worker ├─▶ resonate run
+                    │  └─ heartbeats ──── worker ┘
+                    └──── reports proxied back from the workers
+```
+
+You can use a worker without a controller. The worker's own flow:
 
 ```
 client ──POST /task──▶ worker ──▶ workspace/<id>/scenario.yaml
@@ -54,15 +68,15 @@ client ──POST /task──▶ worker ──▶ workspace/<id>/scenario.yaml
 
 ## What This Isn't
 
-- **No cross-worker coordination.** Submitting the same scenario to five workers in five
-  regions and combining their reports into one number is on you. A worker is
-  deliberately just the one-node piece; [`resonatectl`](resonatectl.md) automates the
-  submitting and collecting, not the combining.
+- **No combining of reports.** The controller runs a scenario on every worker and
+  hands back each worker's report, but turning five reports into one number is on
+  you (sum the counts; never average percentiles). It also doesn't schedule, queue
+  or retry, and its registry and runs live in memory only.
 - **No database.** Task state is a JSON file per task. Listing is a walk of the
   in-memory map, fine for thousands of tasks, not for millions.
 - **No resumption.** A task interrupted by a restart is marked `failed`, not
   re-run.
 - **No queue or concurrency cap.** See [Operations](operations.md#concurrency).
-- **No artifact upload or notifications.** Reports stay on the worker's disk;
-  there is no S3/SNS upload or notifier events, on purpose, until the core shape
-  has proven itself.
+- **No notifications.** Reports stay on the worker's disk unless you set
+  `S3_BUCKET`, which uploads each finished task's files to S3. There are no
+  notifier events.

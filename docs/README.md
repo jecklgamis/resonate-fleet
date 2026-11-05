@@ -66,8 +66,32 @@ curl -H "Authorization: Bearer some-secret-token" \
 See [Usage](usage.md) for the full walkthrough and [API Reference](api.md) for
 every endpoint.
 
-## One Worker, Not a Platform
+### 4. Many workers: add a controller
 
-A worker executes whatever is submitted to it and has no relationship with any
-other worker. There is no queue, no concurrency cap and no coordinator. See
-[Architecture](architecture.md#what-this-isnt) for what that means in practice.
+With more than one worker, don't submit to each by hand. Run a controller, point
+each worker at it, and use `resonatectl`:
+
+```sh
+docker run -d -p 58090:58090 -e CONTROLLER_TOKEN=ctl-secret jecklgamis/resonate-controller:main
+docker run -d -p 58080:58080 -e API_TOKEN=some-secret-token \
+  -e CONTROLLER_URL=http://<controller-host>:58090 -e CONTROLLER_TOKEN=ctl-secret \
+  jecklgamis/resonate-worker:main        # repeat for each worker
+
+export RESONATE_CONTROLLER=http://<controller-host>:58090 CONTROLLER_TOKEN=ctl-secret
+resonatectl workers                       # who has registered
+resonatectl run examples/scenario.yaml    # run on all of them, collect every report
+```
+
+See [Controller](controller.md) and [resonatectl](resonatectl.md).
+
+## What Each Component Is, and Isn't
+
+- **A worker** executes whatever is submitted to it, on its own. It has no queue and
+  no concurrency cap, and it knows nothing about other workers unless you give it a
+  controller to register with.
+- **The controller** keeps a registry of live workers and fans a scenario out to
+  them. It does not schedule, queue or retry, and it keeps its state in memory
+  only. It never combines reports.
+- **`resonatectl`** is a client for the controller, nothing more.
+
+See [Architecture](architecture.md#what-this-isnt) for details.

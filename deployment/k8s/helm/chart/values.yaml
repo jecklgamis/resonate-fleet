@@ -2,10 +2,12 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-# This chart deploys one resonate-worker, and resonate-worker keeps task
-# state and task workspaces on local disk - nothing is shared across replicas. Leave replicaCount (and autoscaling) at 1 unless/until a
-# shared store exists; running several replicas behind one Service today just
-# means a client's poll of GET /task/{id} can land on a pod that never ran it.
+# resonate-worker keeps task state and task workspaces on local disk - nothing is
+# shared across replicas, so a client's poll of GET /task/{id} through the Service
+# can land on a pod that never ran it. Keep replicaCount (and autoscaling) at 1
+# unless the workers register with a controller (controller.url below): then each
+# pod registers by itself and the controller talks to it directly, so any number
+# works.
 replicaCount: 1
 
 image:

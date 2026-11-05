@@ -95,6 +95,9 @@ generator becomes the bottleneck), so:
 | File access | Report endpoints serve fixed file names from a task's own directory; there is no caller-supplied path |
 | Token comparison | Plain string equality, not constant-time. This guards a load-test trigger, not a high-value secret |
 
-Scenarios can reference local files (feeders, body files). Those paths resolve on
-the **worker's** filesystem, relative to the task directory, so a scenario that
-depends on a data file needs that file on the worker.
+Scenarios can reference data files (feeders, body files). Upload them with the
+scenario (the `files` field, or `--data` with `resonatectl`); each is saved in the
+task's own directory and the scenario names it as a plain file name. Absolute paths
+and `..` in `feeder.file`, `body_file` and `raw_body_file` are refused, so a
+submitted scenario can't read other files on the worker. See
+[Data files](usage.md#data-files-feeders).
