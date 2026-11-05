@@ -5,7 +5,7 @@ worker was started with an `API_TOKEN`. Errors are JSON: `{"error": "<message>"}
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| `POST` | `/task` | Start a task. Either a multipart upload (field `file` = the scenario YAML) or JSON `{"scenarioUrl": "..."}`. `202 Accepted` with `{"taskId": "..."}` |
+| `POST` | `/task` | Start a task. Either a multipart upload (field `file` = the scenario YAML, plus optional `files` fields for data files such as feeders) or JSON `{"scenarioUrl": "..."}`. `202 Accepted` with `{"taskId": "..."}` |
 | `GET` | `/task` | Every task this worker knows about |
 | `GET` | `/task/{id}` | That task's status |
 | `GET` | `/task/{id}/report.html` | resonate's HTML report |

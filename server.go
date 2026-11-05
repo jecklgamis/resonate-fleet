@@ -10,9 +10,11 @@ import (
 	"io"
 	"log"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -45,7 +47,9 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 
 // handleSubmit starts a task from a scenario, given one of two ways:
 //
-//   - a multipart upload with one field, "file" — the scenario YAML itself
+//   - a multipart upload with a "file" field — the scenario YAML itself — and
+//     any number of "files" fields: data files (feeders, body files) saved into
+//     the task workspace under their own names for the scenario to refer to
 //   - a JSON body {"scenarioUrl": "https://..."} — where to fetch it from, which
 //     only works for URLs under the worker's SCENARIO_SOURCES allowlist
 //
@@ -59,6 +63,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		body   io.Reader
 		name   string
 		source string
+		data   []*multipart.FileHeader
 	)
 	if isJSON(r) {
 		var req struct {
@@ -91,6 +96,17 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		defer file.Close()
 		body, name = file, header.Filename
+		data = r.MultipartForm.File["files"]
+		if len(data) > maxDataFiles {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("too many data files: %d (max %d)", len(data), maxDataFiles))
+			return
+		}
+		for _, h := range data {
+			if _, err := dataFileName(h.Filename); err != nil {
+				httpError(w, http.StatusBadRequest, err)
+				return
+			}
+		}
 	}
 
 	id, err := newTaskID()
@@ -104,9 +120,25 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sum, err := saveScenario(filepath.Join(dir, "scenario.yaml"), body)
+	scenarioPath := filepath.Join(dir, "scenario.yaml")
+	sum, err := saveScenario(scenarioPath, body)
+	if err == nil {
+		err = checkSavedScenario(scenarioPath)
+	}
+	if err == nil {
+		err = saveDataFiles(dir, data)
+	}
 	if err != nil {
 		os.RemoveAll(dir)
+		var bad badRequest
+		if errors.As(err, &bad) {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		if errors.Is(err, errDataTooLarge) {
+			httpError(w, http.StatusRequestEntityTooLarge, err)
+			return
+		}
 		if errors.Is(err, errSourceTooLarge) {
 			httpError(w, http.StatusRequestEntityTooLarge, err)
 			return
@@ -139,6 +171,44 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	go s.Runner.Run(t)
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"taskId": id})
+}
+
+// badRequest marks an error caused by the submission itself.
+type badRequest struct{ error }
+
+func (b badRequest) Unwrap() error { return b.error }
+
+// checkSavedScenario rejects a saved scenario that reads files outside its workspace.
+func checkSavedScenario(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := checkScenarioPaths(b); err != nil {
+		return badRequest{err}
+	}
+	return nil
+}
+
+// saveDataFiles writes the uploaded data files into the task workspace.
+func saveDataFiles(dir string, files []*multipart.FileHeader) error {
+	budget := int64(maxDataTotal)
+	for _, h := range files {
+		f, err := h.Open()
+		if err != nil {
+			return err
+		}
+		n, err := saveDataFile(dir, h.Filename, f, budget)
+		f.Close()
+		if err != nil {
+			if strings.HasPrefix(err.Error(), "duplicate data file") {
+				return badRequest{err}
+			}
+			return err
+		}
+		budget -= n
+	}
+	return nil
 }
 
 func isJSON(r *http.Request) bool {

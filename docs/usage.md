@@ -50,6 +50,28 @@ assertions:
 > wherever the worker runs — `localhost` means the worker's own machine (or
 > container), not yours.
 
+## Data files (feeders)
+
+Upload feeder CSV/JSON files, or body files, as extra `files` fields. Each is saved
+in the task's workspace under its own name, so the scenario refers to it by that
+name:
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" \
+  -F "file=@scenario.yaml" -F "files=@users.csv" $WORKER/task
+```
+
+```yaml
+http:
+  feeder:
+    file: users.csv
+```
+
+Limits: 10 files, 10 MiB each, 25 MiB total. Names must be plain file names (not
+`scenario.yaml`, `task.json` or a report file). A scenario whose `feeder.file`,
+`body_file` or `raw_body_file` is an absolute path or contains `..` is refused
+with `400`, so a submitted scenario can't read other files on the worker.
+
 ## Scenarios by URL
 
 Instead of uploading the file, you can tell the worker where it lives — a config
