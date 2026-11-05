@@ -16,7 +16,13 @@ fmt-check:
 vet:
 	go vet ./...
 
+IMAGE ?= jecklgamis/resonate-worker
+TAG ?= main
+
+image:
+	docker build -t $(IMAGE):$(TAG) .
+
 run: build
 	./resonate-worker
 
-.PHONY: build test check fmt fmt-check vet run
+.PHONY: build test check fmt fmt-check vet image run
