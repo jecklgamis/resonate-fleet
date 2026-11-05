@@ -9,6 +9,9 @@ The worker is configured with environment variables only. All are optional.
 | `WORKSPACE_DIR` | `workspace` | Where each task's files are written, one subdirectory per task |
 | `RESONATE_BIN` | `resonate` | Path to the resonate binary, if it isn't on `$PATH` |
 | `SCENARIO_SOURCES` | *(unset)* | Comma-separated `http(s)://host[:port][/path-prefix]` entries the worker may fetch scenarios from. **Unset means submitting by URL is refused.** An invalid entry stops the worker at startup. See [Scenarios by URL](usage.md#scenarios-by-url) |
+| `S3_BUCKET` | *(unset)* | When set, each finished task's files (scenario, uploaded data files, `report.*`, `results.jsonl`, `log.txt`) are uploaded to `s3://<bucket>/<S3_PREFIX>/<taskId>/`. Credentials come from the standard AWS chain (env vars, shared config, IRSA, instance role) |
+| `S3_PREFIX` | *(unset)* | Key prefix inside the bucket |
+| `S3_ENDPOINT` | *(unset)* | Endpoint URL for an S3-compatible service such as MinIO (uses path-style addressing) |
 | `SCENARIO_SOURCE_TOKEN` | *(unset)* | Bearer token sent with every scenario fetch, for sources that need auth. It goes to **every** allowed source, so allow only hosts you trust with it |
 
 The Docker image sets `WORKSPACE_DIR=/app/workspace` and
@@ -59,3 +62,11 @@ resonate run scenario.yaml --quiet \
 There is no way to pass other flags through. Everything about the load (duration,
 rate, assertions, targets) belongs in the scenario file — see resonate's
 [Scenarios](https://jecklgamis.github.io/resonate/#/scenarios) page.
+
+## Artifact upload
+
+With `S3_BUCKET` set, the worker uploads a task's files after `resonate` exits and
+before the task is marked `done` or `failed`. The task status then carries
+`artifacts_url` (the `s3://` prefix). If the upload fails, the task keeps its run
+status and gets `upload_error` instead. The local copy stays on the worker, so the
+report endpoints keep working.

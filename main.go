@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -42,10 +43,20 @@ func main() {
 		log.Printf("scenario URLs enabled for: %s", strings.Join(fetcher.Allow, ", "))
 	}
 
+	runner := &Runner{ResonateBin: resonateBin}
+	if bucket := os.Getenv("S3_BUCKET"); bucket != "" {
+		s3store, err := NewS3Store(context.Background(), bucket, os.Getenv("S3_PREFIX"), os.Getenv("S3_ENDPOINT"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		runner.Artifacts = s3store
+		log.Printf("uploading task artifacts to s3://%s/%s", bucket, s3store.Prefix)
+	}
+
 	srv := &Server{
 		Fetcher:   fetcher,
 		Store:     store,
-		Runner:    &Runner{ResonateBin: resonateBin},
+		Runner:    runner,
 		Workspace: workspace,
 	}
 

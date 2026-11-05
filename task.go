@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -40,6 +41,9 @@ type Task struct {
 	ExitCode   int
 	Err        string // resonate's own failure reason (e.g. "assertion failed"), if any
 	FinishedAt time.Time
+
+	ArtifactsURL string // where the task's files were uploaded, if an ArtifactStore is configured
+	UploadError  string // why the upload failed, if it did; the run's own status is unaffected
 }
 
 func (t *Task) setRunning() {
@@ -52,6 +56,22 @@ func (t *Task) setRunning() {
 func (t *Task) finish(exitCode int, err error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.finishLocked(exitCode, err)
+}
+
+// finishUploaded is finish plus the outcome of the artifact upload, recorded in
+// the same write so a poller never sees a done task whose upload is still pending.
+func (t *Task) finishUploaded(exitCode int, err error, url string, uploadErr error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ArtifactsURL = url
+	if uploadErr != nil {
+		t.UploadError = uploadErr.Error()
+	}
+	t.finishLocked(exitCode, err)
+}
+
+func (t *Task) finishLocked(exitCode int, err error) {
 	t.ExitCode = exitCode
 	t.FinishedAt = time.Now()
 	if exitCode == 0 {
@@ -110,6 +130,9 @@ type snapshot struct {
 	Error      string    `json:"error,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	FinishedAt time.Time `json:"finished_at,omitempty"`
+
+	ArtifactsURL string `json:"artifacts_url,omitempty"`
+	UploadError  string `json:"upload_error,omitempty"`
 }
 
 func (t *Task) snapshot() snapshot {
@@ -119,7 +142,7 @@ func (t *Task) snapshot() snapshot {
 }
 
 func (t *Task) snapshotLocked() snapshot {
-	s := snapshot{ID: t.ID, Scenario: t.Scenario, Source: t.Source, SHA256: t.SHA256, Status: t.Status, ExitCode: t.ExitCode, Error: t.Err, CreatedAt: t.CreatedAt}
+	s := snapshot{ID: t.ID, Scenario: t.Scenario, Source: t.Source, SHA256: t.SHA256, Status: t.Status, ExitCode: t.ExitCode, Error: t.Err, CreatedAt: t.CreatedAt, ArtifactsURL: t.ArtifactsURL, UploadError: t.UploadError}
 	if !t.FinishedAt.IsZero() {
 		s.FinishedAt = t.FinishedAt
 	}
@@ -175,6 +198,9 @@ func LoadStore(workspace string) (*Store, error) {
 			ExitCode:   rec.ExitCode,
 			Err:        rec.Error,
 			FinishedAt: rec.FinishedAt,
+
+			ArtifactsURL: rec.ArtifactsURL,
+			UploadError:  rec.UploadError,
 		}
 		if t.Status == StatusQueued || t.Status == StatusRunning {
 			t.Status = StatusFailed
@@ -215,6 +241,9 @@ func (s *Store) List() []*Task {
 // Runner executes resonate against a task's scenario file as a subprocess.
 type Runner struct {
 	ResonateBin string // path to the resonate binary, e.g. from $RESONATE_BIN or "resonate" on $PATH
+
+	// Artifacts, if set, receives the task's files once resonate has exited.
+	Artifacts ArtifactStore
 }
 
 // Run blocks until resonate exits. It is meant to be called in its own
@@ -251,10 +280,30 @@ func (r *Runner) Run(t *Task) {
 			exitCode = ee.ExitCode()
 		}
 	}
-	t.finish(exitCode, runErr)
+	r.finish(t, exitCode, runErr)
 	if exitCode == 0 {
 		log.Printf("task %s: done in %s", t.ID, time.Since(t.CreatedAt).Round(time.Millisecond))
 	} else {
 		log.Printf("task %s: failed (exit %d, err=%v) after %s; see %s", t.ID, exitCode, runErr, time.Since(t.CreatedAt).Round(time.Millisecond), logPath)
 	}
+}
+
+// finish uploads the task's artifacts (when a store is configured) and then
+// records the final status. A failed upload is recorded on the task but does not
+// change the run's outcome.
+func (r *Runner) finish(t *Task, exitCode int, runErr error) {
+	if r.Artifacts == nil {
+		t.finish(exitCode, runErr)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), uploadTimeout)
+	defer cancel()
+	url, err := r.Artifacts.Upload(ctx, t.ID, t.Dir)
+	if err != nil {
+		log.Printf("task %s: artifact upload failed: %v", t.ID, err)
+		url = ""
+	} else {
+		log.Printf("task %s: artifacts uploaded to %s", t.ID, url)
+	}
+	t.finishUploaded(exitCode, runErr, url, err)
 }
