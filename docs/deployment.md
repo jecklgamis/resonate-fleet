@@ -26,7 +26,7 @@ from the repository root, which is the build context:
 ```sh
 docker build -f deployment/docker/worker/Dockerfile -t resonate-worker .
 docker build -f deployment/docker/worker/Dockerfile \
-  --build-arg RESONATE_VERSION=v1.0.0-alpha.2 -t resonate-worker .
+  --build-arg RESONATE_VERSION=v1.0.0-alpha.3 -t resonate-worker .
 docker build -f deployment/docker/controller/Dockerfile -t resonate-controller .
 ```
 

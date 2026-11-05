@@ -22,7 +22,7 @@ LABEL org.opencontainers.image.authors="jecklgamis@gmail.com"
 # are set automatically by `docker buildx build` (and by plain `docker build` on
 # modern Docker) to match the image being built, so a multi-arch build picks up
 # the matching resonate binary without any extra flags.
-ARG RESONATE_VERSION=v1.0.0-alpha.2
+ARG RESONATE_VERSION=v1.0.0-alpha.3
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 
