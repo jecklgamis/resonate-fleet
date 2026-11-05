@@ -32,8 +32,16 @@ Needs the `resonate` binary on `$PATH` (or point `RESONATE_BIN` at it) — see
 [resonate's install docs](https://github.com/jecklgamis/resonate/blob/main/docs/install.md).
 
 ```sh
+API_TOKEN=some-secret-token ./run-worker.sh   # builds and listens on :58080 by default
+```
+
+`run-worker.sh` just builds and execs the binary — checking first that
+`resonate` (or `$RESONATE_BIN`) is actually found, so a missing binary fails
+immediately instead of on the first upload. Equivalent by hand:
+
+```sh
 go build -o resonate-worker .
-API_TOKEN=some-secret-token ./resonate-worker   # listens on :58080 by default
+API_TOKEN=some-secret-token ./resonate-worker
 ```
 
 Submit a scenario:
