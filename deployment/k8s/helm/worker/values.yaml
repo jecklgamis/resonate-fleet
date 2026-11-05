@@ -76,7 +76,7 @@ podAnnotations: {}
 
 podSecurityContext: {}
   # Set fsGroup if persistence.enabled and the volume needs to be writable by
-  # the container's non-root "app" user (see Dockerfile) on first mount.
+  # the container's non-root "app" user (see deployment/docker/worker/Dockerfile) on first mount.
   # fsGroup: 2000
 
 securityContext: {}

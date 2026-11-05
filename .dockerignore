@@ -3,3 +3,5 @@ workspace
 resonate-worker
 deployment
 *.md
+resonate-controller
+resonatectl

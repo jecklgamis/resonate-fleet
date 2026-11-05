@@ -22,10 +22,10 @@ CONTROLLER_IMAGE ?= jecklgamis/resonate-controller
 TAG ?= main
 
 image:
-	docker build -t $(IMAGE):$(TAG) .
+	docker build -f deployment/docker/worker/Dockerfile -t $(IMAGE):$(TAG) .
 
 image-controller:
-	docker build -f Dockerfile.controller -t $(CONTROLLER_IMAGE):$(TAG) .
+	docker build -f deployment/docker/controller/Dockerfile -t $(CONTROLLER_IMAGE):$(TAG) .
 
 run: build
 	./resonate-worker

@@ -8,7 +8,7 @@ docker run -it --name resonate-worker -p 58080:58080 \
 ```
 
 The image bundles a pinned `resonate` release (the `RESONATE_VERSION` build arg
-in the `Dockerfile`) — there is nothing else to install. It runs as a non-root
+in `deployment/docker/worker/Dockerfile`) — there is nothing else to install. It runs as a non-root
 user and keeps task workspaces under `/app/workspace`.
 
 ## Building from Source

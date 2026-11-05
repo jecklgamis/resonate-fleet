@@ -19,11 +19,15 @@ docker run -d --name resonate-controller -p 58090:58090 \
   -e CONTROLLER_TOKEN=some-secret jecklgamis/resonate-controller:main
 ```
 
-To build the images yourself (`make image`, `make image-controller`):
+To build the images yourself (`make image`, `make image-controller`). The Dockerfiles
+live in `deployment/docker/worker` and `deployment/docker/controller`; run the build
+from the repository root, which is the build context:
 
 ```sh
-docker build -t resonate-worker .
-docker build --build-arg RESONATE_VERSION=v1.0.0-alpha.2 -t resonate-worker .
+docker build -f deployment/docker/worker/Dockerfile -t resonate-worker .
+docker build -f deployment/docker/worker/Dockerfile \
+  --build-arg RESONATE_VERSION=v1.0.0-alpha.2 -t resonate-worker .
+docker build -f deployment/docker/controller/Dockerfile -t resonate-controller .
 ```
 
 `RESONATE_VERSION` picks the bundled resonate release. `TARGETOS`/`TARGETARCH`
