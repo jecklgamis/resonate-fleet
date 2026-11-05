@@ -10,7 +10,9 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
-RUN CGO_ENABLED=0 go build -o /out/resonate-worker .
+COPY cmd/resonate-fleet ./cmd/resonate-fleet
+RUN CGO_ENABLED=0 go build -o /out/resonate-worker . && \
+    CGO_ENABLED=0 go build -o /out/resonate-fleet ./cmd/resonate-fleet
 
 FROM ubuntu:24.04
 LABEL org.opencontainers.image.authors="jecklgamis@gmail.com"
@@ -38,7 +40,7 @@ EXPOSE 58080
 RUN mkdir -p /app/bin /app/workspace
 WORKDIR /app
 
-COPY --from=build /out/resonate-worker /app/bin/resonate-worker
+COPY --from=build /out/resonate-worker /out/resonate-fleet /app/bin/
 
 RUN groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app
 RUN chown -R app:app /app

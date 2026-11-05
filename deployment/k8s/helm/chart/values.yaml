@@ -47,6 +47,16 @@ scenarioSourceToken: ""
 headlessService:
   enabled: true
 
+# Register with a resonate-controller (see docs/controller.md). Empty url
+# disables it. The worker finds its own pod address unless advertiseUrl is set.
+# token goes in the same Secret as apiToken (with existingSecretName, add a
+# CONTROLLER_TOKEN key to yours). labels, e.g. {region: sgp1}, select workers.
+controller:
+  url: ""
+  token: ""
+  advertiseUrl: ""
+  labels: {}
+
 # Upload each finished task's files (scenario, data files, reports, results, log)
 # to s3://<bucket>/<prefix>/<taskId>/. Empty bucket disables it. Credentials come
 # from the standard AWS chain; on EKS, annotate the service account below with an

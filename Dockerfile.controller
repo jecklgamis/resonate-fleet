@@ -1,0 +1,29 @@
+FROM ubuntu:24.04 AS build
+ARG GO_VERSION=1.26.1
+ARG TARGETARCH=amd64
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:$PATH
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/resonate-controller ./cmd/resonate-controller
+RUN CGO_ENABLED=0 go build -o /out/resonate-controller ./cmd/resonate-controller
+
+FROM ubuntu:24.04
+LABEL org.opencontainers.image.authors="jecklgamis@gmail.com"
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates dumb-init && \
+    rm -rf /var/lib/apt/lists/*
+
+EXPOSE 58090
+
+RUN groupadd --system app && useradd --system --gid app --create-home --home-dir /home/app app
+COPY --from=build /out/resonate-controller /app/bin/resonate-controller
+USER app
+
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["/app/bin/resonate-controller"]

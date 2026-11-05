@@ -38,3 +38,16 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      - name: Extract metadata (tags, labels) for the controller image
+        id: meta-controller
+        uses: docker/metadata-action@v6
+        with:
+          images: jecklgamis/resonate-controller
+      - name: Build and push controller Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.controller
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-controller.outputs.tags }}
+          labels: ${{ steps.meta-controller.outputs.labels }}

@@ -1,0 +1,11 @@
+resonate-controller is deployed. Single replica; workers register with it.
+
+Point each worker at it (these are plain env vars, wherever the worker runs):
+
+  CONTROLLER_URL={{ if .Values.ingress.enabled }}{{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ (index .Values.ingress.hosts 0).host }}{{ else }}http://{{ include "resonate-controller.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}{{ end }}
+  CONTROLLER_TOKEN=<the controllerToken value>
+
+With the resonate-worker chart:  --set controller.url=... (or add the env vars yourself).
+
+List registered workers:
+  curl -H "Authorization: Bearer $TOKEN" $CONTROLLER_URL/workers

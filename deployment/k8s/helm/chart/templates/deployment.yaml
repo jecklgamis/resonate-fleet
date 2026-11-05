@@ -39,6 +39,28 @@ spec:
                 secretKeyRef:
                   name: {{ include "resonate-worker.secretName" . }}
                   key: API_TOKEN
+            {{- if .Values.controller.url }}
+            - name: CONTROLLER_URL
+              value: {{ .Values.controller.url | quote }}
+            - name: CONTROLLER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "resonate-worker.secretName" . }}
+                  key: CONTROLLER_TOKEN
+                  optional: true
+            - name: WORKER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if .Values.controller.advertiseUrl }}
+            - name: ADVERTISE_URL
+              value: {{ .Values.controller.advertiseUrl | quote }}
+            {{- end }}
+            {{- if .Values.controller.labels }}
+            - name: WORKER_LABELS
+              value: {{ range $k, $v := .Values.controller.labels }}{{ $k }}={{ $v }},{{ end }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.s3.bucket }}
             - name: S3_BUCKET
               value: {{ .Values.s3.bucket | quote }}

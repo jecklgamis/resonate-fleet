@@ -1,0 +1,6 @@
+apiVersion: v2
+name: resonate-controller
+description: Registry and fan-out for resonate-workers - workers register, one API runs a scenario on all of them
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

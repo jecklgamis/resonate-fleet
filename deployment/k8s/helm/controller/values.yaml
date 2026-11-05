@@ -1,0 +1,69 @@
+# Default values for resonate-controller.
+#
+# The controller keeps its worker registry and runs in memory, so it must be a
+# single replica: a second replica would have its own, partial view of the
+# workers. It refills within one worker heartbeat after a restart.
+replicaCount: 1
+
+image:
+  repository: jecklgamis/resonate-controller
+  # "main" is a mutable tag, so pull every time (see the worker chart).
+  pullPolicy: Always
+  tag: "main"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# CONTROLLER_TOKEN gates every endpoint but /healthz; workers present the same
+# token when they register (set it as CONTROLLER_TOKEN on them). Defaults to
+# "default" so this works out of the box - override it for anything real. Set
+# existingSecretName instead to use a Secret you manage (must contain a key
+# named CONTROLLER_TOKEN).
+controllerToken: "default"
+existingSecretName: ""
+
+# Seconds-style durations, passed through as env vars (see docs/controller.md).
+workerTTL: 30s
+pollInterval: 2s
+runTimeout: 1h
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Workers register over this address, and so do callers, so give it a stable
+# URL. Workers send their API token here: use TLS.
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/issuer: "letsencrypt-prod"
+    # A scenario upload with data files can exceed the 1m default.
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+  hosts:
+    - host: resonate-controller.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: resonate-controller-tls
+      hosts:
+        - resonate-controller.example.com
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

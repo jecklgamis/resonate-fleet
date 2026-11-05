@@ -1,6 +1,7 @@
 build:
 	go build -o resonate-worker .
 	go build -o resonate-fleet ./cmd/resonate-fleet
+	go build -o resonate-controller ./cmd/resonate-controller
 
 test:
 	go test ./...
@@ -17,12 +18,16 @@ vet:
 	go vet ./...
 
 IMAGE ?= jecklgamis/resonate-worker
+CONTROLLER_IMAGE ?= jecklgamis/resonate-controller
 TAG ?= main
 
 image:
 	docker build -t $(IMAGE):$(TAG) .
 
+image-controller:
+	docker build -f Dockerfile.controller -t $(CONTROLLER_IMAGE):$(TAG) .
+
 run: build
 	./resonate-worker
 
-.PHONY: build test check fmt fmt-check vet image run
+.PHONY: build test check fmt fmt-check vet image image-controller run
