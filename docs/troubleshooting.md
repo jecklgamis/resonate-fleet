@@ -1,5 +1,27 @@
 # Troubleshooting
 
+## `docker run` says the container name is already in use
+
+```
+docker: Error response from daemon: Conflict. The container name "/resonate-worker"
+is already in use by container "...".
+```
+
+A container with that `--name` already exists, running or stopped, from an earlier
+`docker run`. Remove it, then run again:
+
+```sh
+docker rm -f resonate-worker
+```
+
+The quick-start commands avoid this: they use `--rm` (the container is removed when
+it exits) and no `--name`, so you can paste them as often as you like. It happens with
+the long-lived `docker run -d --name ...` examples in [Deployment](deployment.md),
+or after a named container failed to start (for example because port 58080 was
+already in use, which leaves it in the `Created` state). Check what is using the
+port with `lsof -nP -iTCP:58080 -sTCP:LISTEN`, or map a different host port:
+`-p 58081:58080`.
+
 ## A task fails immediately
 
 `GET /task/{id}/log` first. Common causes:

@@ -3,7 +3,7 @@
 ## Using Docker
 
 ```sh
-docker run -it --name resonate-worker -p 58080:58080 \
+docker run -it --rm -p 58080:58080 \
   -e API_TOKEN=some-secret-token jecklgamis/resonate-worker:main
 ```
 
