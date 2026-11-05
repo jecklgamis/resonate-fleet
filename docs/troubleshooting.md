@@ -90,8 +90,10 @@ table's `ERROR` column says which; each reachable worker's log is saved under
 
 ## `resonatectl` says there is no controller, or gets `401`
 
-Pass `--controller URL` or export `RESONATE_CONTROLLER`, and export the
-controller's token as `CONTROLLER_TOKEN`. A `401` means the token is missing or
+Pass `--context` or `--controller URL`, export `RESONATE_CONTROLLER` and
+`CONTROLLER_TOKEN`, or set `current-context` in the
+[config file](resonatectl.md#config-file) (`resonatectl config view` shows what it
+sees). A `401` means the token is missing or
 wrong; `409 no live workers match` means no worker has registered within the last
 30 seconds (or none has the `--label` you asked for) - check
 `resonatectl workers`.

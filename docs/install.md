@@ -78,7 +78,8 @@ scripts/run-local-scenario.sh my-scenario.yaml
 scripts/run-local-scenario.sh --label region=sgp1 --data users.csv --out reports my-scenario.yaml
 ```
 
-Or use `resonatectl` directly:
+Or use `resonatectl` directly, with environment variables or a
+[config file](resonatectl.md#config-file) so you don't repeat them:
 
 ```sh
 export RESONATE_CONTROLLER=http://localhost:58090 CONTROLLER_TOKEN=ctl-secret

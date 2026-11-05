@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestExtractPositionalAllowsScenarioBeforeOrAfterFlags(t *testing.T) {
 	cases := []struct {
@@ -59,5 +62,30 @@ func TestExtractPositionalSecondPositionalIsLeftForFlagSetToReject(t *testing.T)
 	}
 	if len(rest) != 1 || rest[0] != "extra.yaml" {
 		t.Errorf("rest = %v, want [extra.yaml] (so fs.NArg() != 0 catches it)", rest)
+	}
+}
+
+func TestHoistGlobalFlags(t *testing.T) {
+	cases := []struct{ in, want []string }{
+		{[]string{"workers"}, []string{"workers"}},
+		{[]string{"--context", "prod", "workers"}, []string{"workers", "--context", "prod"}},
+		{[]string{"--context=prod", "--config", "f.yaml", "run", "s.yaml", "--out", "d"}, []string{"run", "--context=prod", "--config", "f.yaml", "s.yaml", "--out", "d"}},
+		{[]string{"--controller", "http://c", "config", "view"}, []string{"config", "--controller", "http://c", "view"}},
+		{[]string{"--version"}, []string{"--version"}},
+		{[]string{"--context", "prod"}, []string{"--context", "prod"}}, // no subcommand: unchanged
+		{nil, nil},
+	}
+	for _, c := range cases {
+		got := hoistGlobalFlags(c.in)
+		if strings.Join(got, "\x00") != strings.Join(c.want, "\x00") {
+			t.Errorf("hoistGlobalFlags(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestSplitPositionals(t *testing.T) {
+	pos, fl := splitPositionals([]string{"--config", "f.yaml", "use", "prod", "--context=x"})
+	if strings.Join(pos, ",") != "use,prod" || strings.Join(fl, ",") != "--config,f.yaml,--context=x" {
+		t.Fatalf("pos=%q flags=%q", pos, fl)
 	}
 }

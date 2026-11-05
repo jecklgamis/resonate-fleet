@@ -22,10 +22,55 @@ The worker image also carries it at `/app/bin/resonatectl`.
 
 ## Configure
 
-| Setting | Meaning |
-| --- | --- |
-| `--controller URL` or `$RESONATE_CONTROLLER` | The controller to talk to |
-| `$CONTROLLER_TOKEN` | Its bearer token (read from the environment, never a flag, so it stays out of shell history and `ps`) |
+`resonatectl` needs a controller URL and its token. Give them with a config file,
+environment variables, or flags. The token is never a flag, so it stays out of shell
+history and `ps`.
+
+### Config file
+
+The usual pattern: a file of named **contexts**, one per controller, like kubectl's.
+It lives at `~/.config/resonatectl/config.yaml` (`$XDG_CONFIG_HOME/resonatectl/` if
+that is set); override it with `--config FILE` or `$RESONATECTL_CONFIG`.
+
+```yaml
+current-context: local
+contexts:
+  local:
+    controller: http://localhost:58090
+    token: ctl-secret                    # stored in the file, as kubectl does
+  prod:
+    controller: https://resonate-controller.example.com
+    token_env: PROD_CONTROLLER_TOKEN     # read from this environment variable
+  staging:
+    controller: https://staging.example.com
+    token_file: ~/.secrets/resonate-staging   # read from this file
+```
+
+Give a context at most one of `token`, `token_env` and `token_file`. Create the file
+with `chmod 600`; `resonatectl` warns if a file holding an inline `token` is readable
+by other users. Unknown fields are an error, so a misspelling is not silently ignored.
+
+```sh
+resonatectl workers                          # uses current-context
+resonatectl --context prod run scenario.yaml # or: resonatectl run --context prod ...
+resonatectl config view                      # the contexts, tokens hidden
+resonatectl config use prod                  # switch current-context
+```
+
+`config use` edits only the `current-context` line, so your comments and layout are
+kept.
+
+### Which setting wins
+
+Highest first:
+
+1. **Flags:** `--controller URL` and `--context NAME`.
+2. **Environment:** `$RESONATE_CONTROLLER` and `$CONTROLLER_TOKEN`.
+3. **The config file's `current-context`.**
+
+An explicit `--context` beats the environment, so a leftover `export` can't send
+`--context prod` to the wrong controller. `--controller` still overrides that
+context's URL. Without a config file, the environment variables work as before:
 
 ```sh
 export RESONATE_CONTROLLER=https://resonate-controller.example.com
@@ -64,7 +109,9 @@ Each worker's `report.html`, `report.json`, `results.jsonl` and `log` land in
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--controller` | `$RESONATE_CONTROLLER` | Controller URL |
+| `--context` | `current-context` | Context to use from the [config file](#config-file) |
+| `--controller` | | Controller URL (overrides the context's) |
+| `--config` | `~/.config/resonatectl/config.yaml` | Config file |
 | `--label k=v` | *(all workers)* | Only workers with this label (repeatable) |
 | `--data file` | | A feeder/body file to upload with the scenario (repeatable; not with a scenario URL) |
 | `--out dir` | `./resonatectl-run-<unix-timestamp>` | Where the reports go |
