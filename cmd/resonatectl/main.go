@@ -32,6 +32,7 @@ flags (run, workers):
   --controller URL   resonate-controller to talk to (overrides the context's)
   --config FILE      config file (default ~/.config/resonatectl/config.yaml, or $RESONATECTL_CONFIG)
   --label k=v        only workers with this label (repeatable)
+  --workers N|P%     (run) a random N, or P%, of those workers; default all
 settings, highest first: flags, then $RESONATE_CONTROLLER and $CONTROLLER_TOKEN,
 then the config file's current context.`
 
@@ -111,6 +112,7 @@ func runCmd(args []string) int {
 	cf := commonFlags(fs)
 	var dataFiles multiFlag
 	fs.Var(&dataFiles, "data", "A feeder/body file to upload with the scenario (repeatable; not with a scenario URL)")
+	workers := fs.String("workers", "", "Run on a random subset of the matching workers: a count (4) or a percentage (25%); default all")
 	outDir := fs.String("out", "", "Directory for each worker's reports, one subdirectory per worker (default ./resonatectl-run-<timestamp>)")
 	poll := fs.Duration("poll", 2*time.Second, "How often to check the run's progress")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage); fs.PrintDefaults() }
@@ -140,7 +142,7 @@ func runCmd(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	results, err := runViaController(ctx, c, scenario, dataFiles, *cf.labels, *outDir, *poll)
+	results, err := runViaController(ctx, c, scenario, startOptions{DataFiles: dataFiles, Labels: *cf.labels, Workers: *workers}, *outDir, *poll)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1

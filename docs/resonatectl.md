@@ -127,6 +127,8 @@ resonate-worker-66654b7d86-pc8jd  http://10.108.0.64:58080 cluster=do-sgp1   6s 
 ```sh
 resonatectl run scenario.yaml
 resonatectl run --label region=sgp1 --data users.csv scenario.yaml
+resonatectl run --workers 4 scenario.yaml          # 4 random workers
+resonatectl run --label region=sgp1 --workers 25% scenario.yaml
 ```
 
 ```
@@ -146,6 +148,7 @@ Each worker's `report.html`, `report.json`, `results.jsonl` and `log` land in
 | `--controller` | | Controller URL (overrides the context's) |
 | `--config` | `~/.config/resonatectl/config.yaml` | Config file |
 | `--label k=v` | *(all workers)* | Only workers with this label (repeatable) |
+| `--workers N` or `P%` | *(all of them)* | Run on a random `N`, or `P%` (rounded up, at least 1), of the workers left after `--label`. More than are live is an error. See [Running on some of the workers](controller.md#running-on-some-of-the-workers) |
 | `--data file` | | A feeder/body file to upload with the scenario (repeatable; not with a scenario URL) |
 | `--out dir` | `./resonatectl-run-<unix-timestamp>` | Where the reports go |
 | `--poll` | `2s` | How often to check progress |

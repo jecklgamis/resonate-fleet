@@ -68,16 +68,36 @@ func (c *ControllerClient) do(ctx context.Context, method, path, contentType str
 	return resp, nil
 }
 
+// startOptions say which workers a run goes to and what goes with the scenario.
+type startOptions struct {
+	DataFiles []string // feeder/body files uploaded alongside the scenario
+	Labels    []string // only workers with all of these key=value labels
+	Workers   string   // "" for all of them, else a count ("4") or percentage ("25%") of those
+}
+
+// startedRun is what the controller says it started.
+type startedRun struct {
+	ID        string
+	Workers   []string // the workers chosen
+	Available int      // how many were live and matched the labels
+
+	// SelectionIgnored is true when a --workers selection was asked for but the
+	// controller did not confirm it (an older controller ignores the parameter),
+	// so the run started on every matching worker.
+	SelectionIgnored bool
+}
+
 // Start submits the scenario (a local file with optional data files, or a URL
-// for the workers to fetch) to workers matching labels, and returns the run id.
-func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, dataFiles, labels []string) (string, []string, error) {
+// for the workers to fetch) to the workers chosen by opts.
+func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, opts startOptions) (startedRun, error) {
+	dataFiles, labels := opts.DataFiles, opts.Labels
 	var (
 		body io.Reader
 		ct   string
 	)
 	if isScenarioURL(scenarioPath) {
 		if len(dataFiles) > 0 {
-			return "", nil, fmt.Errorf("--data can't be combined with a scenario URL")
+			return startedRun{}, fmt.Errorf("--data can't be combined with a scenario URL")
 		}
 		b, _ := json.Marshal(map[string]string{"scenarioUrl": scenarioPath})
 		body, ct = bytes.NewReader(b), "application/json"
@@ -85,11 +105,11 @@ func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, dataF
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
 		if err := addFile(mw, "file", scenarioPath); err != nil {
-			return "", nil, err
+			return startedRun{}, err
 		}
 		for _, d := range dataFiles {
 			if err := addFile(mw, "files", d); err != nil {
-				return "", nil, err
+				return startedRun{}, err
 			}
 		}
 		mw.Close()
@@ -99,27 +119,37 @@ func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, dataF
 	for _, l := range labels {
 		q.Add("label", l)
 	}
+	if opts.Workers != "" {
+		q.Set("workers", opts.Workers)
+	}
 	path := "/runs"
 	if len(q) > 0 {
 		path += "?" + q.Encode()
 	}
 	resp, err := c.do(ctx, http.MethodPost, path, ct, body)
 	if err != nil {
-		return "", nil, err
+		return startedRun{}, err
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusAccepted {
-		return "", nil, fmt.Errorf("starting run: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return startedRun{}, fmt.Errorf("starting run: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 	var out struct {
-		RunID   string   `json:"runId"`
-		Workers []string `json:"workers"`
+		RunID     string   `json:"runId"`
+		Workers   []string `json:"workers"`
+		Available *int     `json:"available"` // absent from controllers that predate --workers
 	}
 	if err := json.Unmarshal(b, &out); err != nil || out.RunID == "" {
-		return "", nil, fmt.Errorf("controller returned no runId")
+		return startedRun{}, fmt.Errorf("controller returned no runId")
 	}
-	return out.RunID, out.Workers, nil
+	run := startedRun{ID: out.RunID, Workers: out.Workers, Available: len(out.Workers)}
+	if out.Available != nil {
+		run.Available = *out.Available
+	} else if opts.Workers != "" {
+		run.SelectionIgnored = true
+	}
+	return run, nil
 }
 
 func addFile(mw *multipart.Writer, field, path string) error {
@@ -188,12 +218,16 @@ func (c *ControllerClient) fetch(ctx context.Context, runID, worker, name, dest 
 
 // runViaController runs the scenario through the controller and returns one
 // result per worker, with each worker's reports written under outDir/<worker>/.
-func runViaController(ctx context.Context, c *ControllerClient, scenarioPath string, dataFiles, labels []string, outDir string, poll time.Duration) ([]workerResult, error) {
-	id, names, err := c.Start(ctx, scenarioPath, dataFiles, labels)
+func runViaController(ctx context.Context, c *ControllerClient, scenarioPath string, opts startOptions, outDir string, poll time.Duration) ([]workerResult, error) {
+	started, err := c.Start(ctx, scenarioPath, opts)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("run %s started on %d worker(s): %s\n", id, len(names), strings.Join(names, ", "))
+	id := started.ID
+	if started.SelectionIgnored {
+		fmt.Fprintf(os.Stderr, "warning: this controller does not support --workers, so the run started on all %d matching workers; upgrade the controller\n", len(started.Workers))
+	}
+	fmt.Printf("run %s started on %d of %d worker(s): %s\n", id, len(started.Workers), started.Available, strings.Join(started.Workers, ", "))
 	run, err := c.Wait(ctx, id, poll)
 	if err != nil {
 		return nil, err

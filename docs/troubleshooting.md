@@ -96,4 +96,6 @@ Pass `--context` or `--controller URL`, export `RESONATE_CONTROLLER` and
 sees). A `401` means the token is missing or
 wrong; `409 no live workers match` means no worker has registered within the last
 30 seconds (or none has the `--label` you asked for) - check
-`resonatectl workers`.
+`resonatectl workers`. `409 requested N workers but only M are live` means
+`--workers N` is more than the labelled pool holds; ask for fewer, or use a
+percentage.

@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"mime"
 	"net/http"
 	"sort"
@@ -19,6 +21,10 @@ const maxScenarioBytes = 1 << 20
 type Server struct {
 	Registry *Registry
 	Runs     *Runs
+
+	// Shuffle randomizes which workers a partial run picks. Nil means
+	// math/rand/v2's Shuffle; tests set a fixed permutation.
+	Shuffle func(n int, swap func(i, j int))
 }
 
 func (s *Server) Routes(mux *http.ServeMux) {
@@ -117,7 +123,8 @@ func (s *Server) handleWorkers(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleStartRun starts a scenario on every live worker (or those matching
-// ?label=key=value, repeatable). Like the worker's POST /task, the body is a
+// ?label=key=value, repeatable), narrowed to a random subset by ?workers=4 or
+// ?workers=25% (after the label filter). Like the worker's POST /task, the body is a
 // multipart upload ("file", plus optional "files" data files) or JSON
 // {"scenarioUrl": ...}.
 func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
@@ -131,9 +138,22 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
-	workers := s.Registry.Live(sel)
-	if len(workers) == 0 {
+	live := s.Registry.Live(sel)
+	if len(live) == 0 {
 		writeError(w, http.StatusConflict, fmt.Errorf("no live workers match"))
+		return
+	}
+	shuffle := s.Shuffle
+	if shuffle == nil {
+		shuffle = rand.Shuffle
+	}
+	workers, err := selectWorkers(live, r.URL.Query().Get("workers"), shuffle)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.As(err, &notEnoughLive{}) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
 		return
 	}
 	run, err := s.Runs.Start(spec, workers)
@@ -145,7 +165,8 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	for i, e := range workers {
 		names[i] = e.Name
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"runId": run.ID, "workers": names})
+	log.Printf("run %s started on %d of %d live workers", run.ID, len(workers), len(live))
+	writeJSON(w, http.StatusAccepted, map[string]any{"runId": run.ID, "workers": names, "available": len(live)})
 }
 
 func readSpec(r *http.Request) (scenarioSpec, int, error) {
