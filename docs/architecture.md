@@ -36,7 +36,7 @@ cmd/
 deployment/
   docker/{worker,controller}/Dockerfile
   k8s/helm/{worker,controller}/        one Helm chart each, plus a Makefile for both
-scripts/                  run-local-worker.sh, run-local-controller.sh
+scripts/                  run-local-controller.sh, run-local-worker.sh, run-local-scenario.sh
 docs/                     this site
 examples/                 a sample scenario
 ```

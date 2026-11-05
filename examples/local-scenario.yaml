@@ -1,0 +1,20 @@
+# A scenario that works with the local scripts out of the box: it loads the local
+# controller's own /healthz, so no other service needs to be running.
+#   scripts/run-local-controller.sh ; scripts/run-local-worker.sh
+#   scripts/run-local-scenario.sh
+protocol: http
+
+load:
+  duration: 5s
+  rate: 20
+  workers: 2
+
+http:
+  timeout: 2s
+  targets:
+    - method: GET
+      url: http://localhost:58090/healthz
+
+assertions:
+  - metric: success_rate
+    min: "0.99"

@@ -66,7 +66,21 @@ defaults, so you can try the whole flow without Docker or Kubernetes:
 ```sh
 scripts/run-local-controller.sh        # terminal 1: controller on :58090
 scripts/run-local-worker.sh            # terminal 2: worker on :58080, registered with it
+scripts/run-local-scenario.sh          # terminal 3: run a scenario on it via resonatectl
+```
 
+`run-local-scenario.sh` runs `examples/local-scenario.yaml`, which loads the local
+controller's own `/healthz`, so nothing else needs to be running. Pass your own
+scenario and any `resonatectl run` flag straight through:
+
+```sh
+scripts/run-local-scenario.sh my-scenario.yaml
+scripts/run-local-scenario.sh --label region=sgp1 --data users.csv --out reports my-scenario.yaml
+```
+
+Or use `resonatectl` directly:
+
+```sh
 export RESONATE_CONTROLLER=http://localhost:58090 CONTROLLER_TOKEN=ctl-secret
 ./resonatectl workers
 ./resonatectl run examples/scenario.yaml
