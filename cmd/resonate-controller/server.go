@@ -28,6 +28,7 @@ type Server struct {
 }
 
 func (s *Server) Routes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /{$}", handleRoot)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("POST /workers", s.handleRegister)
 	mux.HandleFunc("GET /workers", s.handleWorkers)
@@ -265,15 +266,15 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
-// withAuth requires "Authorization: Bearer <token>" on everything but /healthz
-// when token is non-empty.
+// withAuth requires "Authorization: Bearer <token>" on everything but / and
+// /healthz when token is non-empty.
 func withAuth(token string, next http.Handler) http.Handler {
 	if token == "" {
 		return next
 	}
 	want := "Bearer " + token
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" && r.Header.Get("Authorization") != want {
+		if r.URL.Path != "/" && r.URL.Path != "/healthz" && r.Header.Get("Authorization") != want {
 			writeError(w, http.StatusUnauthorized, fmt.Errorf("missing or bad Authorization header"))
 			return
 		}
@@ -286,4 +287,9 @@ func envDuration(d time.Duration, v string) time.Duration {
 		return x
 	}
 	return d
+}
+
+// handleRoot is a banner for anyone who opens the bare URL.
+func handleRoot(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"app": "resonate-controller", "message": "Relax, perf test it"})
 }

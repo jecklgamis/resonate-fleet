@@ -30,6 +30,7 @@ type Server struct {
 }
 
 func (s *Server) Routes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /{$}", handleRoot)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("POST /task", s.handleSubmit)
 	mux.HandleFunc("GET /task", s.handleList)
@@ -315,15 +316,15 @@ func httpError(w http.ResponseWriter, status int, err error) {
 }
 
 // withAuth requires "Authorization: Bearer <token>" on every request when
-// token is non-empty. /healthz is always open, for load balancer health
-// checks. token == "" disables auth entirely (local/dev use).
+// token is non-empty. / and /healthz are always open (the latter for load
+// balancer health checks). token == "" disables auth entirely (local/dev use).
 func withAuth(token string, next http.Handler) http.Handler {
 	if token == "" {
 		return next
 	}
 	want := "Bearer " + token
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
+		if r.URL.Path == "/" || r.URL.Path == "/healthz" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -359,4 +360,9 @@ func withRequestLog(next http.Handler) http.Handler {
 		next.ServeHTTP(sw, r)
 		log.Printf("%s %s -> %d (%s) from %s", r.Method, r.URL.Path, sw.status, time.Since(start).Round(time.Millisecond), r.RemoteAddr)
 	})
+}
+
+// handleRoot is a banner for anyone who opens the bare URL.
+func handleRoot(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"app": "resonate-worker", "message": "Relax, perf test it"})
 }

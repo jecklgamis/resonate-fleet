@@ -31,7 +31,7 @@ registry is in memory). Point workers at it with the worker chart's
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `ADDR` | `:58090` | Listen address |
-| `CONTROLLER_TOKEN` | *(unset)* | Bearer token required on everything but `/healthz`. Unset means open |
+| `CONTROLLER_TOKEN` | *(unset)* | Bearer token required on everything but `/` (a JSON banner) and `/healthz`. Unset means open |
 | `WORKER_TTL` | `30s` | A worker not seen for this long is dropped |
 | `POLL_INTERVAL` | `2s` | How often the controller polls each worker's task |
 | `RUN_TIMEOUT` | `1h` | Cap on one worker's submit and poll |

@@ -1,6 +1,6 @@
 # API Reference
 
-All endpoints except `/healthz` need `Authorization: Bearer <API_TOKEN>` when the
+All endpoints except `/` and `/healthz` need `Authorization: Bearer <API_TOKEN>` when the
 worker was started with an `API_TOKEN`. Errors are JSON: `{"error": "<message>"}`.
 
 | Method | Path | Returns |
@@ -12,6 +12,7 @@ worker was started with an `API_TOKEN`. Errors are JSON: `{"error": "<message>"}
 | `GET` | `/task/{id}/report.json` | resonate's JSON report |
 | `GET` | `/task/{id}/results.jsonl` | resonate's raw per-request results |
 | `GET` | `/task/{id}/log` | resonate's stdout and stderr for that run |
+| `GET` | `/` | `200` `{"app":"resonate-worker","message":"Relax, perf test it"}` — exempt from auth |
 | `GET` | `/healthz` | `200 ok` — exempt from auth, for a load balancer health check |
 
 ## `POST /task`
