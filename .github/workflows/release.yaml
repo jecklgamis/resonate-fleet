@@ -67,6 +67,17 @@ jobs:
           else
             mv resonate-worker resonate-controller resonatectl "$name/"
           fi
+          # Bundle the matching resonate binary so the archive runs on its own;
+          # keep in step with RESONATE_VERSION in deployment/docker/worker/Dockerfile.
+          rv=v1.0.0-alpha.3
+          if [ "${{ matrix.goos }}" = "windows" ]; then rext=zip; else rext=tar.gz; fi
+          rname="resonate_${rv}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          curl -fsSL -o "/tmp/$rname.$rext" "https://github.com/jecklgamis/resonate/releases/download/$rv/$rname.$rext"
+          mkdir /tmp/resonate-dist
+          if [ "$rext" = zip ]; then unzip -q "/tmp/$rname.$rext" -d /tmp/resonate-dist; else tar -xzf "/tmp/$rname.$rext" -C /tmp/resonate-dist; fi
+          rbin=$(find /tmp/resonate-dist -type f \( -name resonate -o -name resonate.exe \) | head -n1)
+          test -n "$rbin"
+          cp "$rbin" "$name/"
           cp README.md LICENSE "$name/"
           cp -r examples "$name/"
           if [ "${{ matrix.goos }}" = "windows" ]; then

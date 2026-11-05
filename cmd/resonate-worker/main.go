@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -24,7 +25,7 @@ var version = "dev"
 func main() {
 	addr := envOr("ADDR", ":58080")
 	workspace := envOr("WORKSPACE_DIR", "workspace")
-	resonateBin := envOr("RESONATE_BIN", "resonate")
+	resonateBin := envOr("RESONATE_BIN", defaultResonateBin())
 	token := os.Getenv("API_TOKEN") // "" disables auth — fine for local use, not for anything reachable over a network
 
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
@@ -128,4 +129,25 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// defaultResonateBin is where to find resonate when RESONATE_BIN is unset: a
+// resonate next to this executable (as in a release archive), else "resonate"
+// on $PATH.
+func defaultResonateBin() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "resonate"
+	}
+	return siblingBin(filepath.Dir(exe), "resonate")
+}
+
+func siblingBin(dir, name string) string {
+	for _, n := range []string{name, name + ".exe"} {
+		p := filepath.Join(dir, n)
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+	}
+	return name
 }

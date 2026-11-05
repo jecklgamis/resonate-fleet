@@ -7,7 +7,7 @@ The worker is configured with environment variables only. All are optional.
 | `ADDR` | `:58080` | Listen address |
 | `API_TOKEN` | *(unset)* | Bearer token required on every endpoint except `/healthz`. **Unset means no auth at all** — fine on localhost, not for anything reachable over a network |
 | `WORKSPACE_DIR` | `workspace` | Where each task's files are written, one subdirectory per task |
-| `RESONATE_BIN` | `resonate` | Path to the resonate binary, if it isn't on `$PATH` |
+| `RESONATE_BIN` | `resonate` next to the worker, else on `$PATH` | Path to the resonate binary |
 | `SCENARIO_SOURCES` | *(unset)* | Comma-separated `http(s)://host[:port][/path-prefix]` entries the worker may fetch scenarios from. **Unset means submitting by URL is refused.** An invalid entry stops the worker at startup. See [Scenarios by URL](usage.md#scenarios-by-url) |
 | `CONTROLLER_URL` | *(unset)* | When set, the worker registers with this [controller](controller.md) and re-registers as a heartbeat |
 | `CONTROLLER_TOKEN` | *(unset)* | Bearer token for the controller |

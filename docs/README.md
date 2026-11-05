@@ -36,12 +36,25 @@ file to `resonate run` unchanged.
 
 ### 1. Run a worker
 
+Download the archive for your platform from the
+[releases page](https://github.com/jecklgamis/resonate-fleet/releases) — it holds
+`resonate-worker`, `resonate-controller`, `resonatectl` and the `resonate` binary
+they run, so there is nothing else to install:
+
 ```sh
-docker run -it --rm -p 58080:58080 \
-  -e API_TOKEN=some-secret-token jecklgamis/resonate-worker:main
+VERSION=v1.0.0-alpha.4   # a release tag
+curl -fsSLO https://github.com/jecklgamis/resonate-fleet/releases/download/$VERSION/resonate-fleet_${VERSION}_darwin_arm64.tar.gz
+tar -xzf resonate-fleet_${VERSION}_darwin_arm64.tar.gz && cd resonate-fleet_${VERSION}_darwin_arm64
+API_TOKEN=some-secret-token ./resonate-worker   # listens on :58080
 ```
 
-Or from source — see [Install](install.md).
+Platforms: `linux_amd64`, `linux_arm64`, `darwin_amd64`, `darwin_arm64`, `windows_amd64`
+(a `.zip`). The worker finds the `resonate` next to it; set `RESONATE_BIN` to use another.
+On macOS, a browser-downloaded archive is quarantined as unsigned; clear it with
+`xattr -dr com.apple.quarantine .` (not needed when downloaded with `curl`).
+
+Or use Docker (`docker run -it --rm -p 58080:58080 -e API_TOKEN=some-secret-token jecklgamis/resonate-worker:main`)
+or build from source — see [Install](install.md).
 
 ### 2. Submit a scenario
 
