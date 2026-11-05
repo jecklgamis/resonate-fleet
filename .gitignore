@@ -3,3 +3,5 @@
 /resonate-controller
 /workspace/
 /resonatectl-run-*/
+/deployment/k8s/helm/*.tgz
+/deployment/k8s/helm/dry-run-*.txt

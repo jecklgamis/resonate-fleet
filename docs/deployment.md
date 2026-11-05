@@ -31,11 +31,11 @@ are set by `docker buildx build`, so a multi-arch build gets the matching binary
 
 ## Kubernetes (Helm)
 
-A chart lives in `deployment/k8s/helm/chart`:
+A chart lives in `deployment/k8s/helm/worker`:
 
 ```sh
 cd deployment/k8s/helm
-helm install resonate-worker ./chart --set apiToken=some-secret-token
+helm install resonate-worker ./worker --set apiToken=some-secret-token
 ```
 
 Key values (see `values.yaml` for the full set, each with its own comment):
@@ -75,7 +75,7 @@ through the Service. Set `controller.url` and `controller.token` and scale
 so a rolling restart doesn't leave dead workers listed.
 
 ```sh
-helm install resonate-worker ./chart --set apiToken=... --set replicaCount=4 \
+helm install resonate-worker ./worker --set apiToken=... --set replicaCount=4 \
   --set controller.url=http://resonate-controller --set controller.token=... \
   --set controller.labels.region=sgp1
 ```
@@ -97,6 +97,10 @@ helm install resonate-controller ./controller --set controllerToken=some-secret
 
 The image is `jecklgamis/resonate-controller`. It holds no persistent state, so a
 restart loses past runs, though workers re-register within 10 seconds.
+
+The `Makefile` in `deployment/k8s/helm` wraps both charts, with the component as a
+suffix: `make lint`, `make package`, `make install-worker`, `make upgrade-controller`,
+`make dry-run-worker`, and so on.
 
 ## Putting It on a Network
 
