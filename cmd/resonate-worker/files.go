@@ -64,11 +64,19 @@ func saveDataFile(dir, name string, src io.Reader, budget int64) (int64, error) 
 	return n, err
 }
 
+// pathKeys are the scenario keys whose value is a single file to read, and
+// pathListKeys those whose value is a list of files or directories. feeder.file
+// is the one key whose name alone is ambiguous, so it is matched by its parent.
+var (
+	pathKeys     = map[string]bool{"body_file": true, "raw_body_file": true, "message_file": true, "ca_file": true, "cert_file": true, "key_file": true}
+	pathListKeys = map[string]bool{"proto_files": true, "import_paths": true}
+)
+
 // checkScenarioPaths rejects a scenario that reads files outside its own task
-// workspace. resonate resolves body_file, raw_body_file and feeder.file relative
-// to its working directory, so relative names without ".." stay inside the
-// workspace, where the uploaded data files are. An absolute path would let a
-// submitted scenario read any file the worker can, such as /etc/passwd.
+// workspace. resonate resolves these keys relative to its working directory, so
+// relative names without ".." stay inside the workspace, where the uploaded data
+// files are. An absolute path would let a submitted scenario read any file the
+// worker can (and message_file, body_file and friends then send it to the target).
 func checkScenarioPaths(scenario []byte) error {
 	var root yaml.Node
 	if err := yaml.Unmarshal(scenario, &root); err != nil {
@@ -88,10 +96,24 @@ func walkPaths(n *yaml.Node, parent string) error {
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(n.Content); i += 2 {
 			key, val := n.Content[i].Value, n.Content[i+1]
-			isPath := key == "body_file" || key == "raw_body_file" || (key == "file" && parent == "feeder")
-			if isPath && val.Kind == yaml.ScalarNode {
-				if err := checkRelPath(key, val.Value); err != nil {
-					return err
+			switch {
+			case pathKeys[key] || (key == "file" && parent == "feeder"):
+				if val.Kind == yaml.ScalarNode {
+					if err := checkRelPath(key, val.Value); err != nil {
+						return err
+					}
+				}
+			case pathListKeys[key]:
+				entries := val.Content
+				if val.Kind == yaml.ScalarNode {
+					entries = []*yaml.Node{val}
+				}
+				for _, e := range entries {
+					if e.Kind == yaml.ScalarNode {
+						if err := checkRelPath(key, e.Value); err != nil {
+							return err
+						}
+					}
 				}
 			}
 			if err := walkPaths(val, key); err != nil {

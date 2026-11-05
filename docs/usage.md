@@ -68,9 +68,11 @@ http:
 ```
 
 Limits: 10 files, 10 MiB each, 25 MiB total. Names must be plain file names (not
-`scenario.yaml`, `task.json` or a report file). A scenario whose `feeder.file`,
-`body_file` or `raw_body_file` is an absolute path or contains `..` is refused
-with `400`, so a submitted scenario can't read other files on the worker.
+`scenario.yaml`, `task.json` or a report file). A scenario is refused with `400` if
+any key that reads a file is an absolute path or contains `..`: `feeder.file`,
+`body_file`, `raw_body_file`, `message_file`, `ca_file`, `cert_file`, `key_file`,
+`proto_files` and `import_paths`. A submitted scenario therefore can't read, or send
+to its target, other files on the worker.
 
 ## Scenarios by URL
 

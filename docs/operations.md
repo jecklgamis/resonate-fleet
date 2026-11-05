@@ -98,6 +98,7 @@ generator becomes the bottleneck), so:
 Scenarios can reference data files (feeders, body files). Upload them with the
 scenario (the `files` field, or `--data` with `resonatectl`); each is saved in the
 task's own directory and the scenario names it as a plain file name. Absolute paths
-and `..` in `feeder.file`, `body_file` and `raw_body_file` are refused, so a
-submitted scenario can't read other files on the worker. See
+and `..` in any file-reading key (`feeder.file`, `body_file`, `raw_body_file`,
+`message_file`, `ca_file`, `cert_file`, `key_file`, `proto_files`, `import_paths`)
+are refused, so a submitted scenario can't read other files on the worker. See
 [Data files](usage.md#data-files-feeders).

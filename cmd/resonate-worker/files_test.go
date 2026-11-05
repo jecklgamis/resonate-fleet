@@ -100,3 +100,28 @@ func TestDataFileName(t *testing.T) {
 		t.Errorf("dataFileName(users.csv) = %v", err)
 	}
 }
+
+// Every scenario key that makes resonate read a local file must be refused when
+// it points outside the task workspace, whichever protocol section it sits in.
+func TestEveryFileKeyIsGuarded(t *testing.T) {
+	bad := map[string]string{
+		"message_file":  "ws:\n  messages:\n    - message_file: /etc/passwd\n",
+		"ca_file":       "http:\n  tls:\n    ca_file: ../ca.pem\n",
+		"cert_file":     "grpc:\n  tls:\n    cert_file: /etc/ssl/cert.pem\n",
+		"key_file":      "http:\n  tls:\n    key_file: /root/.ssh/id_rsa\n",
+		"proto_files":   "grpc:\n  proto_files:\n    - ok.proto\n    - /etc/shadow\n",
+		"import_paths":  "grpc:\n  import_paths: [protos, ../..]\n",
+		"body_file":     "http:\n  targets:\n    - body_file: /etc/hosts\n",
+		"raw_body_file": "http:\n  targets:\n    - raw_body_file: ..\\x\n",
+		"feeder.file":   "http:\n  feeder:\n    file: /etc/passwd\n",
+	}
+	for name, scenario := range bad {
+		if err := checkScenarioPaths([]byte(scenario)); err == nil {
+			t.Errorf("%s: an out-of-workspace path was accepted:\n%s", name, scenario)
+		}
+	}
+	good := "grpc:\n  proto_files: [svc.proto]\n  import_paths: [protos]\n  tls:\n    ca_file: ca.pem\n    cert_file: c.pem\n    key_file: k.pem\nws:\n  messages:\n    - message_file: msg.json\nhttp:\n  feeder:\n    file: users.csv\n    rows: [{a: b}]\n"
+	if err := checkScenarioPaths([]byte(good)); err != nil {
+		t.Errorf("plain workspace-relative names were refused: %v", err)
+	}
+}
