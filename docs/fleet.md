@@ -51,6 +51,31 @@ workers:
     token_env: API_TOKEN
 ```
 
+## Kubernetes: discovering workers by DNS
+
+When the workers are a Deployment you scale up and down, don't list each one.
+Point `discover` at the chart's headless Service instead:
+
+```yaml
+discover:
+  dns: resonate-worker-headless.perf.svc.cluster.local
+  token_env: API_TOKEN      # all discovered workers share this token
+  # port: 58080             # default
+  # scheme: http            # default
+```
+
+The fleet command resolves that name to one address per ready pod and runs the
+scenario on every one, naming each worker after its IP (so reports land in
+`<out>/10.0.1.5/`). You can combine `discover` with a `workers` list. Discovery
+that finds nothing is an error, not a smaller run.
+
+It has to be the **headless** Service (`headlessService.enabled`, on by default in
+the chart; `<release>-headless`). The normal Service load-balances each request to
+a random pod, so a task's polls could land on a pod that never saw it. The fleet
+command must run where pod IPs are reachable and the name resolves: inside the
+cluster, for example as a Job or from a debug pod. From a laptop, use a
+`workers` list with `kubectl port-forward` instead.
+
 ## Run
 
 ```sh

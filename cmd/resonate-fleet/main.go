@@ -62,6 +62,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if err := cfg.Resolve(ctx, DNSLookup); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
 	fmt.Printf("submitting %s to %d worker(s), writing reports under %s\n", scenarioPath, len(cfg.Workers), *outDir)
 	results := runFleet(ctx, cfg, scenarioPath, *outDir, *poll)
 	printTable(os.Stdout, results)
