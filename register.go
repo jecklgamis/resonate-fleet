@@ -55,6 +55,32 @@ func (r *Registrar) Run(ctx context.Context) {
 	}
 }
 
+// Deregister tells the controller this worker is going away, so it stops being
+// handed runs at once instead of lingering until its heartbeat expires. Call it
+// after Run has returned, or a late heartbeat could re-register the worker.
+func (r *Registrar) Deregister(ctx context.Context) error {
+	if r.client == nil {
+		r.client = &http.Client{Timeout: 10 * time.Second}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, strings.TrimRight(r.ControllerURL, "/")+"/workers/"+url.PathEscape(r.Name), nil)
+	if err != nil {
+		return err
+	}
+	if r.ControllerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+r.ControllerToken)
+	}
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
+		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
 func (r *Registrar) register(ctx context.Context) error {
 	body, _ := json.Marshal(map[string]any{"name": r.Name, "url": r.URL, "token": r.WorkerToken, "labels": r.Labels})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(r.ControllerURL, "/")+"/workers", bytes.NewReader(body))

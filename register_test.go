@@ -60,3 +60,25 @@ func TestDetectAdvertiseURL(t *testing.T) {
 		t.Fatal("accepted bad ADDR")
 	}
 }
+
+func TestRegistrarDeregister(t *testing.T) {
+	var gotPath, gotAuth, gotMethod string
+	ctrl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotAuth = r.Method, r.URL.EscapedPath(), r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ctrl.Close()
+	r := &Registrar{ControllerURL: ctrl.URL, ControllerToken: "ct", Name: "w 1"}
+	if err := r.Deregister(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != "DELETE" || gotPath != "/workers/w%201" || gotAuth != "Bearer ct" {
+		t.Fatalf("got %s %s auth=%q", gotMethod, gotPath, gotAuth)
+	}
+
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "nope", 401) }))
+	defer bad.Close()
+	if err := (&Registrar{ControllerURL: bad.URL, Name: "w"}).Deregister(context.Background()); err == nil {
+		t.Fatal("a 401 was treated as success")
+	}
+}

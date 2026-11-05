@@ -12,7 +12,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 )
 
 func main() {
@@ -60,13 +63,20 @@ func main() {
 		Workspace: workspace,
 	}
 
+	// SIGTERM is how Kubernetes (and docker stop) ask a process to leave.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	reg, err := registrarFromEnv(addr, token)
 	if err != nil {
 		log.Fatal(err)
 	}
+	heartbeatDone := make(chan struct{})
 	if reg != nil {
 		log.Printf("registering with controller %s as %q at %s", reg.ControllerURL, reg.Name, reg.URL)
-		go reg.Run(context.Background())
+		go func() { reg.Run(ctx); close(heartbeatDone) }()
+	} else {
+		close(heartbeatDone)
 	}
 
 	mux := http.NewServeMux()
@@ -78,7 +88,36 @@ func main() {
 		log.Println("warning: API_TOKEN is not set — every endpoint is open to anyone who can reach this address")
 	}
 	log.Printf("resonate-worker listening on %s (workspace=%s, resonate=%s)", addr, workspace, resonateBin)
-	log.Fatal(http.ListenAndServe(addr, handler))
+
+	server := &http.Server{Addr: addr, Handler: handler}
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- server.ListenAndServe() }()
+
+	select {
+	case err := <-serveErr:
+		log.Fatal(err)
+	case <-ctx.Done():
+	}
+	log.Printf("shutting down")
+
+	// Leave the controller first so no new run is sent here, then stop serving.
+	// A task still running when the process exits is marked failed on the next
+	// start (see LoadStore).
+	<-heartbeatDone
+	if reg != nil {
+		dctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := reg.Deregister(dctx); err != nil {
+			log.Printf("deregistering from controller: %v", err)
+		} else {
+			log.Printf("deregistered from controller")
+		}
+		cancel()
+	}
+	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(sctx); err != nil {
+		log.Printf("http shutdown: %v", err)
+	}
 }
 
 func envOr(key, def string) string {
