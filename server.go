@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -83,6 +84,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Store.Add(t)
 
+	log.Printf("task %s: submitted (scenario=%q, from=%s)", id, header.Filename, r.RemoteAddr)
 	go s.Runner.Run(t)
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"taskId": id})
@@ -171,5 +173,28 @@ func withAuth(token string, next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// statusWriter records the status code a handler wrote, for request logging.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+// withRequestLog logs one line per request: method, path, status, duration and
+// client address. It never logs headers, so the bearer token stays out of the
+// log. Wrap it outside withAuth so rejected (401) requests are logged too.
+func withRequestLog(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		log.Printf("%s %s -> %d (%s) from %s", r.Method, r.URL.Path, sw.status, time.Since(start).Round(time.Millisecond), r.RemoteAddr)
 	})
 }

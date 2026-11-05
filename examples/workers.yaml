@@ -1,0 +1,7 @@
+workers:
+  - name: local
+    url: http://localhost:58080
+    token_env: API_TOKEN
+  - name: local-2
+    url: http://localhost:58080
+    token_env: API_TOKEN

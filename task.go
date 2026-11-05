@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,10 +126,12 @@ type Runner struct {
 // cap in this minimal version (see README's "Known limitations").
 func (r *Runner) Run(t *Task) {
 	t.setRunning()
+	log.Printf("task %s: running %s run scenario.yaml", t.ID, r.ResonateBin)
 
 	logPath := filepath.Join(t.Dir, "log.txt")
 	logFile, err := os.Create(logPath)
 	if err != nil {
+		log.Printf("task %s: failed: creating log file: %v", t.ID, err)
 		t.finish(1, fmt.Errorf("creating log file: %w", err))
 		return
 	}
@@ -153,4 +156,9 @@ func (r *Runner) Run(t *Task) {
 		}
 	}
 	t.finish(exitCode, runErr)
+	if exitCode == 0 {
+		log.Printf("task %s: done in %s", t.ID, time.Since(t.CreatedAt).Round(time.Millisecond))
+	} else {
+		log.Printf("task %s: failed (exit %d, err=%v) after %s; see %s", t.ID, exitCode, runErr, time.Since(t.CreatedAt).Round(time.Millisecond), logPath)
+	}
 }

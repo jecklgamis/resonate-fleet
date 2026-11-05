@@ -1,0 +1,19 @@
+protocol: http
+
+load:
+  duration: 10s
+  rate: 20
+  workers: 5
+
+http:
+  timeout: 5s
+  targets:
+    - method: GET
+      url: http://localhost:8080/health   # point this at the service you want to load
+
+# A run whose assertions fail ends as status "failed" on the worker.
+assertions:
+  - metric: success_rate
+    min: "0.99"
+  - metric: latency_p95
+    max: 500ms

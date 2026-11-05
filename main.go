@@ -32,7 +32,7 @@ func main() {
 	mux := http.NewServeMux()
 	srv.Routes(mux)
 
-	handler := withAuth(token, mux)
+	handler := withRequestLog(withAuth(token, mux))
 
 	if token == "" {
 		log.Println("warning: API_TOKEN is not set — every endpoint is open to anyone who can reach this address")
