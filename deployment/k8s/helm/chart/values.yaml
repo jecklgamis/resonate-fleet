@@ -3,8 +3,7 @@
 # Declare variables to be passed into your templates.
 
 # This chart deploys one resonate-worker, and resonate-worker keeps task
-# status in memory and task workspaces on local disk - nothing is shared
-# across replicas. Leave replicaCount (and autoscaling) at 1 unless/until a
+# state and task workspaces on local disk - nothing is shared across replicas. Leave replicaCount (and autoscaling) at 1 unless/until a
 # shared store exists; running several replicas behind one Service today just
 # means a client's poll of GET /task/{id} can land on a pod that never ran it.
 replicaCount: 1
@@ -33,6 +32,15 @@ fullnameOverride: ""
 # data/stringData key named API_TOKEN) without putting it in values.yaml/git.
 apiToken: "default"
 existingSecretName: ""
+
+# Where the worker may fetch scenarios from when one is submitted by URL
+# ({"scenarioUrl": ...}). Empty means URL submissions are refused. Each entry is
+# http(s)://host[:port][/path-prefix]; keep them narrow. scenarioSourceToken, if
+# set, is sent as a bearer token on every fetch (it goes in the same Secret as
+# apiToken; with existingSecretName, add a SCENARIO_SOURCE_TOKEN key to yours).
+scenarioSources: []
+#  - https://config.example.com/scenarios
+scenarioSourceToken: ""
 
 serviceAccount:
   # Specifies whether a service account should be created
@@ -96,7 +104,7 @@ resources: {}
   #   memory: 128Mi
 
 # Off by default: a worker currently has no concurrency cap on how many
-# resonate subprocesses it runs at once (see the main README), so scaling
+# resonate subprocesses it runs at once (see the docs' Operations page), so scaling
 # replicas doesn't scale capacity in a controlled way yet.
 autoscaling:
   enabled: false
@@ -105,12 +113,11 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
   targetMemoryUtilizationPercentage: 80
 
-# resonate-worker keeps each task's scenario file and reports
-# (report.html/report.json/results.jsonl/log.txt) on local disk, under
-# WORKSPACE_DIR, with no other durability. Enable this to survive pod
-# restarts; leave it off for disposable/CI use. Task status itself is still
-# only in memory - a restart loses the task list either way, even with
-# persistence on (see the main README's "What this isn't").
+# resonate-worker keeps each task's scenario file, state (task.json) and
+# reports (report.html/report.json/results.jsonl/log.txt) on local disk, under
+# WORKSPACE_DIR, with no other durability. Enable this to keep the task list
+# and reports across pod restarts; leave it off for disposable/CI use. Without
+# it the workspace is lost with the pod.
 persistence:
   enabled: false
   size: 10Gi

@@ -189,3 +189,71 @@ func TestPrintTableIsSortedByWorkerName(t *testing.T) {
 		t.Errorf("expected error message in table:\n%s", out)
 	}
 }
+
+func TestSubmitByURLSendsScenarioURLAsJSONAndUploadsNothing(t *testing.T) {
+	var gotType, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotType = r.Header.Get("Content-Type")
+		b := new(bytes.Buffer)
+		b.ReadFrom(r.Body)
+		gotBody = b.String()
+		w.WriteHeader(http.StatusAccepted)
+		fmt.Fprint(w, `{"taskId":"t9"}`)
+	}))
+	defer srv.Close()
+
+	c := newWorkerClient(Worker{Name: "w", URL: srv.URL})
+	id, err := c.Submit(context.Background(), "https://config.example.com/scenarios/a.yaml")
+	if err != nil || id != "t9" {
+		t.Fatalf("Submit = %q, %v; want t9, nil", id, err)
+	}
+	if gotType != "application/json" || gotBody != `{"scenarioUrl":"https://config.example.com/scenarios/a.yaml"}` {
+		t.Errorf("worker got %q %q, want a JSON scenarioUrl body", gotType, gotBody)
+	}
+}
+
+func TestSubmitByURLRefusedByOneWorkerDoesNotAffectTheOther(t *testing.T) {
+	ok := fakeWorkerAcceptingJSON(t, http.StatusAccepted)
+	defer ok.Close()
+	denied := fakeWorkerAcceptingJSON(t, http.StatusForbidden)
+	defer denied.Close()
+
+	cfg := &FleetConfig{Workers: []Worker{{Name: "a", URL: ok.URL}, {Name: "b", URL: denied.URL}}}
+	results := runFleet(context.Background(), cfg, "https://config.example.com/s.yaml", t.TempDir(), 10*time.Millisecond)
+
+	by := map[string]workerResult{}
+	for _, r := range results {
+		by[r.Worker.Name] = r
+	}
+	if by["a"].Status != "done" {
+		t.Errorf("worker a = %q (%s), want done", by["a"].Status, by["a"].Err)
+	}
+	if by["b"].Status != "error" || !strings.Contains(by["b"].Err, "403") {
+		t.Errorf("worker b = %q (%s), want an error mentioning 403", by["b"].Status, by["b"].Err)
+	}
+	if !anyFailed(results) {
+		t.Error("anyFailed = false, want true")
+	}
+}
+
+// fakeWorkerAcceptingJSON answers POST /task with the given status; on 202 it
+// then behaves like a finished worker.
+func fakeWorkerAcceptingJSON(t *testing.T, submitStatus int) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/task", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(submitStatus)
+		if submitStatus == http.StatusAccepted {
+			fmt.Fprint(w, `{"taskId":"t1"}`)
+		} else {
+			fmt.Fprint(w, `{"error":"scenario URL is not under an allowed source"}`)
+		}
+	})
+	mux.HandleFunc("/task/t1", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":"t1","status":"done"}`)
+	})
+	for _, name := range []string{"report.html", "report.json", "results.jsonl", "log"} {
+		mux.HandleFunc("/task/t1/"+name, serveString("", "{}"))
+	}
+	return httptest.NewServer(mux)
+}

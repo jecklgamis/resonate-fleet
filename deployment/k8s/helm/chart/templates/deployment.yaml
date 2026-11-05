@@ -39,6 +39,16 @@ spec:
                 secretKeyRef:
                   name: {{ include "resonate-worker.secretName" . }}
                   key: API_TOKEN
+            {{- if .Values.scenarioSources }}
+            - name: SCENARIO_SOURCES
+              value: {{ join "," .Values.scenarioSources | quote }}
+            - name: SCENARIO_SOURCE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "resonate-worker.secretName" . }}
+                  key: SCENARIO_SOURCE_TOKEN
+                  optional: true
+            {{- end }}
           ports:
             - name: http
               containerPort: 58080

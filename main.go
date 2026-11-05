@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -23,8 +24,27 @@ func main() {
 		log.Fatalf("creating workspace dir %q: %v", workspace, err)
 	}
 
+	store, err := LoadStore(workspace)
+	if err != nil {
+		log.Fatalf("loading tasks from %q: %v", workspace, err)
+	}
+	log.Printf("loaded %d task(s) from %s", len(store.List()), workspace)
+
+	var allow []string
+	if v := os.Getenv("SCENARIO_SOURCES"); v != "" {
+		allow = strings.Split(v, ",")
+	}
+	fetcher, err := NewSourceFetcher(allow, os.Getenv("SCENARIO_SOURCE_TOKEN"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(fetcher.Allow) > 0 {
+		log.Printf("scenario URLs enabled for: %s", strings.Join(fetcher.Allow, ", "))
+	}
+
 	srv := &Server{
-		Store:     NewStore(),
+		Fetcher:   fetcher,
+		Store:     store,
 		Runner:    &Runner{ResonateBin: resonateBin},
 		Workspace: workspace,
 	}

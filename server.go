@@ -2,11 +2,14 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +21,10 @@ type Server struct {
 	Store     *Store
 	Runner    *Runner
 	Workspace string // base directory; each task gets Workspace/<taskID>/
+
+	// Fetcher downloads scenarios submitted by URL. Nil, or one with no allowed
+	// sources, means URL submissions are refused.
+	Fetcher *SourceFetcher
 }
 
 func (s *Server) Routes(mux *http.ServeMux) {
@@ -36,21 +43,55 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("ok"))
 }
 
-// handleSubmit accepts a multipart upload with one field, "file" — the
-// scenario YAML — writes it to a fresh task workspace as scenario.yaml, and
-// starts `resonate run` against it in a background goroutine. It returns
-// immediately with the taskId; the caller polls GET /task/{id}.
+// handleSubmit starts a task from a scenario, given one of two ways:
+//
+//   - a multipart upload with one field, "file" — the scenario YAML itself
+//   - a JSON body {"scenarioUrl": "https://..."} — where to fetch it from, which
+//     only works for URLs under the worker's SCENARIO_SOURCES allowlist
+//
+// Either way the scenario is saved into a fresh task workspace as scenario.yaml
+// and `resonate run` starts against it in a background goroutine. It returns
+// immediately with the taskId; the caller polls GET /task/{id}. A URL is fetched
+// before the response, so a bad or unreachable URL is a 4xx/5xx here rather than
+// a mysteriously failed task later.
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		httpError(w, http.StatusBadRequest, fmt.Errorf("parsing upload: %w", err))
-		return
+	var (
+		body   io.Reader
+		name   string
+		source string
+	)
+	if isJSON(r) {
+		var req struct {
+			ScenarioURL string `json:"scenarioUrl"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&req); err != nil {
+			httpError(w, http.StatusBadRequest, fmt.Errorf(`want a JSON body like {"scenarioUrl": "https://..."}: %w`, err))
+			return
+		}
+		if req.ScenarioURL == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf(`missing "scenarioUrl"`))
+			return
+		}
+		rc, err := s.Fetcher.Fetch(req.ScenarioURL)
+		if err != nil {
+			httpError(w, fetchStatus(err), err)
+			return
+		}
+		defer rc.Close()
+		body, name, source = rc, scenarioName(req.ScenarioURL), req.ScenarioURL
+	} else {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("parsing upload: %w", err))
+			return
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			httpError(w, http.StatusBadRequest, fmt.Errorf(`missing "file" field with the scenario YAML (or send JSON with "scenarioUrl"): %w`, err))
+			return
+		}
+		defer file.Close()
+		body, name = file, header.Filename
 	}
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		httpError(w, http.StatusBadRequest, fmt.Errorf(`missing "file" field with the scenario YAML: %w`, err))
-		return
-	}
-	defer file.Close()
 
 	id, err := newTaskID()
 	if err != nil {
@@ -63,31 +104,82 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dst, err := os.Create(filepath.Join(dir, "scenario.yaml"))
+	sum, err := saveScenario(filepath.Join(dir, "scenario.yaml"), body)
 	if err != nil {
-		httpError(w, http.StatusInternalServerError, fmt.Errorf("saving scenario: %w", err))
+		os.RemoveAll(dir)
+		if errors.Is(err, errSourceTooLarge) {
+			httpError(w, http.StatusRequestEntityTooLarge, err)
+			return
+		}
+		def := http.StatusInternalServerError
+		if source != "" {
+			def = http.StatusBadGateway // the read that failed was from the remote source
+		}
+		httpError(w, fetchStatusOr(err, def), fmt.Errorf("saving scenario: %w", err))
 		return
 	}
-	if _, err := io.Copy(dst, file); err != nil {
-		dst.Close()
-		httpError(w, http.StatusInternalServerError, fmt.Errorf("saving scenario: %w", err))
-		return
-	}
-	dst.Close()
 
 	t := &Task{
 		ID:        id,
 		Dir:       dir,
-		Scenario:  header.Filename,
+		Scenario:  name,
+		Source:    source,
+		SHA256:    sum,
 		CreatedAt: time.Now(),
 		Status:    StatusQueued,
 	}
 	s.Store.Add(t)
+	t.save()
 
-	log.Printf("task %s: submitted (scenario=%q, from=%s)", id, header.Filename, r.RemoteAddr)
+	if source != "" {
+		log.Printf("task %s: submitted (scenario=%q, source=%s, sha256=%s, from=%s)", id, name, source, sum[:12], r.RemoteAddr)
+	} else {
+		log.Printf("task %s: submitted (scenario=%q, from=%s)", id, name, r.RemoteAddr)
+	}
 	go s.Runner.Run(t)
 
 	writeJSON(w, http.StatusAccepted, map[string]string{"taskId": id})
+}
+
+func isJSON(r *http.Request) bool {
+	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return mt == "application/json"
+}
+
+// saveScenario copies src to path and returns the SHA-256 of what was written,
+// so a task records exactly which bytes it ran.
+func saveScenario(path string, src io.Reader) (string, error) {
+	dst, err := os.Create(path)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	_, err = io.Copy(io.MultiWriter(dst, h), src)
+	if cerr := dst.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// fetchStatus maps a SourceFetcher error to the HTTP status that best describes
+// it: the caller's mistake (4xx) versus the source being down (502).
+func fetchStatus(err error) int {
+	return fetchStatusOr(err, http.StatusBadGateway)
+}
+
+func fetchStatusOr(err error, def int) int {
+	switch {
+	case errors.Is(err, errSourceDisabled), errors.Is(err, errSourceNotAllowed):
+		return http.StatusForbidden
+	case errors.Is(err, errSourceBadURL):
+		return http.StatusBadRequest
+	case errors.Is(err, errSourceTooLarge):
+		return http.StatusRequestEntityTooLarge
+	}
+	return def
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {

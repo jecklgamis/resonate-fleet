@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const usage = "usage: resonate-fleet run --workers workers.yaml [--out dir] [--poll 2s] <scenario.yaml>"
+const usage = "usage: resonate-fleet run --workers workers.yaml [--out dir] [--poll 2s] <scenario.yaml|scenario-url>"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] != "run" {
@@ -47,9 +47,11 @@ func main() {
 		*outDir = fmt.Sprintf("fleet-run-%d", time.Now().Unix())
 	}
 
-	if _, err := os.Stat(scenarioPath); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+	if !isScenarioURL(scenarioPath) {
+		if _, err := os.Stat(scenarioPath); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	cfg, err := LoadFleetConfig(*workersPath)
 	if err != nil {

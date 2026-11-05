@@ -59,6 +59,11 @@ one that was unreachable — so it's usable as a CI gate the same way
 | `--out` | `./fleet-run-<unix-timestamp>` | Where to write each worker's reports, one subdirectory per worker |
 | `--poll` | `2s` | How often to check each worker's task status |
 
+The scenario can also be a URL — `resonate-fleet run --workers workers.yaml
+https://config.example.com/scenarios/checkout.yaml`. Each worker then fetches it
+itself, so the URL has to be under that worker's `SCENARIO_SOURCES`; nothing is
+uploaded from your machine.
+
 The scenario path can go anywhere on the command line — before, after, or
 between the flags.
 

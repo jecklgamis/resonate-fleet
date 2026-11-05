@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -30,6 +31,8 @@ type Task struct {
 	ID        string
 	Dir       string
 	Scenario  string // the uploaded file's original name, for display only
+	Source    string // URL the scenario was fetched from, if it was submitted by URL
+	SHA256    string // hash of the scenario bytes that were saved and run
 	CreatedAt time.Time
 
 	mu         sync.Mutex
@@ -43,6 +46,7 @@ func (t *Task) setRunning() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.Status = StatusRunning
+	t.saveLocked()
 }
 
 func (t *Task) finish(exitCode int, err error) {
@@ -58,6 +62,40 @@ func (t *Task) finish(exitCode int, err error) {
 			t.Err = err.Error()
 		}
 	}
+	t.saveLocked()
+}
+
+// taskFile is the per-task state file inside the task's workspace directory.
+const taskFile = "task.json"
+
+// save persists the task's current state to Dir/task.json so the task list
+// survives a worker restart. It writes a temp file and renames it into place,
+// so a crash mid-write never leaves a truncated task.json. A failure is
+// logged, not fatal: the in-memory state is still correct, and losing one
+// status write only matters if the worker also restarts.
+func (t *Task) save() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.saveLocked()
+}
+
+// saveLocked is save for a caller already holding t.mu. State changes call it
+// before releasing the lock, so a new status is never visible to a poll (or a
+// restart) before it is on disk.
+func (t *Task) saveLocked() {
+	b, err := json.Marshal(t.snapshotLocked())
+	if err != nil {
+		log.Printf("task %s: encoding state: %v", t.ID, err)
+		return
+	}
+	tmp := filepath.Join(t.Dir, taskFile+".tmp")
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		log.Printf("task %s: saving state: %v", t.ID, err)
+		return
+	}
+	if err := os.Rename(tmp, filepath.Join(t.Dir, taskFile)); err != nil {
+		log.Printf("task %s: saving state: %v", t.ID, err)
+	}
 }
 
 // snapshot is Task's data under lock, safe to hand to a JSON encoder without
@@ -65,6 +103,8 @@ func (t *Task) finish(exitCode int, err error) {
 type snapshot struct {
 	ID         string    `json:"id"`
 	Scenario   string    `json:"scenario"`
+	Source     string    `json:"source,omitempty"`
+	SHA256     string    `json:"sha256,omitempty"`
 	Status     Status    `json:"status"`
 	ExitCode   int       `json:"exit_code,omitempty"`
 	Error      string    `json:"error,omitempty"`
@@ -75,23 +115,79 @@ type snapshot struct {
 func (t *Task) snapshot() snapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	s := snapshot{ID: t.ID, Scenario: t.Scenario, Status: t.Status, ExitCode: t.ExitCode, Error: t.Err, CreatedAt: t.CreatedAt}
+	return t.snapshotLocked()
+}
+
+func (t *Task) snapshotLocked() snapshot {
+	s := snapshot{ID: t.ID, Scenario: t.Scenario, Source: t.Source, SHA256: t.SHA256, Status: t.Status, ExitCode: t.ExitCode, Error: t.Err, CreatedAt: t.CreatedAt}
 	if !t.FinishedAt.IsZero() {
 		s.FinishedAt = t.FinishedAt
 	}
 	return s
 }
 
-// Store holds every task this worker has run, in memory. Restarting the worker
-// loses task history — the workspace directories on disk survive, but there is
-// nothing yet to re-index them. Good enough for a single long-lived worker
-// process; a restart-safe store is future work if this is kept running long-term.
+// Store holds every task this worker knows about, in memory. Each task is also
+// persisted as Dir/task.json (see Task.save) and LoadStore rebuilds the Store
+// from those files at startup.
 type Store struct {
 	mu    sync.RWMutex
 	tasks map[string]*Task
 }
 
 func NewStore() *Store { return &Store{tasks: make(map[string]*Task)} }
+
+// LoadStore rebuilds a Store from the task.json files under workspace, one
+// per task subdirectory. Subdirectories without a readable task.json are
+// skipped. A task that was queued or running when the previous worker process
+// died has no subprocess any more, so it is marked failed rather than left
+// "running" forever.
+func LoadStore(workspace string) (*Store, error) {
+	s := NewStore()
+	entries, err := os.ReadDir(workspace)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return s, nil
+		}
+		return nil, err
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(workspace, e.Name())
+		b, err := os.ReadFile(filepath.Join(dir, taskFile))
+		if err != nil {
+			continue // not a task directory, or from before persistence existed
+		}
+		var rec snapshot
+		if err := json.Unmarshal(b, &rec); err != nil || rec.ID != e.Name() {
+			log.Printf("skipping %s: unreadable or mismatched %s", dir, taskFile)
+			continue
+		}
+		t := &Task{
+			ID:         rec.ID,
+			Dir:        dir,
+			Scenario:   rec.Scenario,
+			Source:     rec.Source,
+			SHA256:     rec.SHA256,
+			CreatedAt:  rec.CreatedAt,
+			Status:     rec.Status,
+			ExitCode:   rec.ExitCode,
+			Err:        rec.Error,
+			FinishedAt: rec.FinishedAt,
+		}
+		if t.Status == StatusQueued || t.Status == StatusRunning {
+			t.Status = StatusFailed
+			t.ExitCode = 1
+			t.Err = "worker restarted before the task finished"
+			t.FinishedAt = time.Now()
+			t.save()
+			log.Printf("task %s: was %s when the worker stopped; marked failed", t.ID, rec.Status)
+		}
+		s.Add(t)
+	}
+	return s, nil
+}
 
 func (s *Store) Add(t *Task) {
 	s.mu.Lock()

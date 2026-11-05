@@ -45,8 +45,20 @@ func (c *WorkerClient) authorize(r *http.Request) {
 	}
 }
 
-// Submit uploads the scenario at scenarioPath and returns the worker's taskId.
+// isScenarioURL reports whether the scenario argument is a URL for the workers
+// to fetch themselves, rather than a local file to upload.
+func isScenarioURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// Submit sends the scenario and returns the worker's taskId. A URL is passed to
+// the worker as {"scenarioUrl": ...} for it to fetch (it must be under that
+// worker's SCENARIO_SOURCES); anything else is uploaded from the local file.
 func (c *WorkerClient) Submit(ctx context.Context, scenarioPath string) (string, error) {
+	if isScenarioURL(scenarioPath) {
+		b, _ := json.Marshal(map[string]string{"scenarioUrl": scenarioPath})
+		return c.post(ctx, "application/json", bytes.NewReader(b))
+	}
 	f, err := os.Open(scenarioPath)
 	if err != nil {
 		return "", err
@@ -66,11 +78,16 @@ func (c *WorkerClient) Submit(ctx context.Context, scenarioPath string) (string,
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Worker.URL+"/task", &buf)
+	return c.post(ctx, mw.FormDataContentType(), &buf)
+}
+
+// post sends a submission body to POST /task and returns the taskId.
+func (c *WorkerClient) post(ctx context.Context, contentType string, body io.Reader) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Worker.URL+"/task", body)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Content-Type", contentType)
 	c.authorize(req)
 
 	resp, err := c.HTTP.Do(req)
@@ -78,15 +95,15 @@ func (c *WorkerClient) Submit(ctx context.Context, scenarioPath string) (string,
 		return "", fmt.Errorf("submitting to %s: %w", c.Worker.URL, err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusAccepted {
-		return "", fmt.Errorf("submitting to %s: %s: %s", c.Worker.URL, resp.Status, strings.TrimSpace(string(body)))
+		return "", fmt.Errorf("submitting to %s: %s: %s", c.Worker.URL, resp.Status, strings.TrimSpace(string(respBody)))
 	}
 
 	var out struct {
 		TaskID string `json:"taskId"`
 	}
-	if err := json.Unmarshal(body, &out); err != nil {
+	if err := json.Unmarshal(respBody, &out); err != nil {
 		return "", fmt.Errorf("parsing submit response from %s: %w", c.Worker.URL, err)
 	}
 	if out.TaskID == "" {
