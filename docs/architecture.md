@@ -26,6 +26,24 @@ client ──POST /task──▶ worker ──▶ workspace/<id>/scenario.yaml
                                           results.jsonl, log.txt
 ```
 
+## Repository Layout
+
+```
+cmd/
+  resonate-worker/        the worker (this page's request flow and component table)
+  resonate-controller/    the controller
+  resonatectl/            the CLI
+deployment/
+  docker/{worker,controller}/Dockerfile
+  k8s/helm/{worker,controller}/        one Helm chart each, plus a Makefile for both
+scripts/                  run-local-worker.sh, run-local-controller.sh
+docs/                     this site
+examples/                 a sample scenario
+```
+
+The three programs share no code; each is its own `package main`, and they talk
+only over HTTP.
+
 ## Request Flow
 
 1. `POST /task` takes the scenario from a multipart upload, or fetches it from an
@@ -42,10 +60,13 @@ client ──POST /task──▶ worker ──▶ workspace/<id>/scenario.yaml
 
 | File | Role |
 | --- | --- |
-| `main.go` | Reads the environment, loads saved tasks, wires the handler chain (request log → auth → routes) |
-| `server.go` | HTTP handlers, bearer-token auth, request logging |
-| `source.go` | Fetching scenarios by URL: the allowlist, redirect checks, size cap |
-| `task.go` | The `Task` and `Store` types, `task.json` persistence, and the `Runner` that executes resonate |
+| `cmd/resonate-worker/main.go` | Reads the environment, loads saved tasks, wires the handler chain (request log → auth → routes), registers with a controller, shuts down gracefully |
+| `cmd/resonate-worker/server.go` | HTTP handlers, bearer-token auth, request logging |
+| `cmd/resonate-worker/source.go` | Fetching scenarios by URL: the allowlist, redirect checks, size cap |
+| `cmd/resonate-worker/files.go` | Uploaded data files: name and size limits, and the check that a scenario's file paths stay inside its workspace |
+| `cmd/resonate-worker/task.go` | The `Task` and `Store` types, `task.json` persistence, and the `Runner` that executes resonate |
+| `cmd/resonate-worker/artifacts.go` | Uploading a finished task's files to S3 |
+| `cmd/resonate-worker/register.go` | Registering with a controller: heartbeat and deregistration |
 | `cmd/resonate-controller` | The controller: workers register with it and it fans a scenario out to them over the public API |
 | `cmd/resonatectl` | The CLI for the controller: run a scenario, list workers |
 

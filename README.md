@@ -28,6 +28,9 @@ make build
 API_TOKEN=some-secret-token ./resonate-worker   # listens on :58080
 ```
 
+To try a controller and a worker together on your machine, run
+`scripts/run-local-controller.sh` and `scripts/run-local-worker.sh`
+(see [Running Locally](docs/install.md#running-locally)).
 Submit a scenario, poll it, fetch the report:
 
 ```sh

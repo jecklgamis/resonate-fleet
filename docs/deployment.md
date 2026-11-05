@@ -19,7 +19,7 @@ docker run -d --name resonate-controller -p 58090:58090 \
   -e CONTROLLER_TOKEN=some-secret jecklgamis/resonate-controller:main
 ```
 
-To build the images yourself (`make image`, `make image-controller`). The Dockerfiles
+To build the images yourself (`make image-worker`, `make image-controller`, or `make images` for both). The Dockerfiles
 live in `deployment/docker/worker` and `deployment/docker/controller`; run the build
 from the repository root, which is the build context:
 
