@@ -9,6 +9,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,6 +22,9 @@ const usage = `usage:
   resonatectl workers [flags]                            list the registered workers
   resonatectl config view                                show the contexts in the config file
   resonatectl config use <context>                       switch the current context
+  resonatectl config set-context <name> [--controller URL] [--token-stdin | --token T |
+                                  --token-env VAR | --token-file F] [--use]   create or update a context
+  resonatectl config delete-context <name>               remove a context
   resonatectl version                                    print the version
 
 flags (run, workers):
@@ -178,18 +182,23 @@ func workersCmd(args []string) int {
 	return 0
 }
 
-// configCmd is `resonatectl config view` and `resonatectl config use <context>`.
+// configCmd handles `resonatectl config view|use|set-context|delete-context`.
 func configCmd(args []string) int {
 	fs := flag.NewFlagSet("config", flag.ExitOnError)
 	file := fs.String("config", "", "Config file (default ~/.config/resonatectl/config.yaml, or $RESONATECTL_CONFIG)")
-	// Accepted so `resonatectl --context prod config view` doesn't fail, but a
-	// config command only ever reads the file.
+	controller := fs.String("controller", "", "set-context: the controller URL")
+	token := fs.String("token", "", "set-context: the token, stored in the file (it lands in your shell history; prefer --token-stdin)")
+	tokenStdin := fs.Bool("token-stdin", false, "set-context: read the token from standard input")
+	tokenEnv := fs.String("token-env", "", "set-context: read the token from this environment variable at run time")
+	tokenFile := fs.String("token-file", "", "set-context: read the token from this file at run time")
+	use := fs.Bool("use", false, "set-context: also make this the current context")
 	fs.String("context", "", "ignored by config")
-	fs.String("controller", "", "ignored by config")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage); fs.PrintDefaults() }
 
 	positionals, flagArgs := splitPositionals(args)
 	fs.Parse(flagArgs)
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 
 	path := *file
 	if path == "" {
@@ -198,21 +207,84 @@ func configCmd(args []string) int {
 	if path == "" {
 		path = defaultConfigPath(os.Getenv)
 	}
+	fail := func(err error) int { fmt.Fprintln(os.Stderr, "error:", err); return 1 }
+	if len(positionals) == 0 {
+		fs.Usage()
+		return 2
+	}
+	sub, rest := positionals[0], positionals[1:]
+
 	switch {
-	case len(positionals) == 1 && positionals[0] == "view":
+	case sub == "view" && len(rest) == 0:
 		cfg, exists, err := loadConfig(path)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			return 1
+			return fail(err)
 		}
 		viewConfig(os.Stdout, path, cfg, exists)
 		return 0
-	case len(positionals) == 2 && positionals[0] == "use":
-		if err := useContext(path, positionals[1]); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			return 1
+
+	case sub == "use" && len(rest) == 1:
+		if err := useContext(path, rest[0]); err != nil {
+			return fail(err)
 		}
-		fmt.Printf("current context is now %q\n", positionals[1])
+		fmt.Printf("current context is now %q\n", rest[0])
+		return 0
+
+	case sub == "delete-context" && len(rest) == 1:
+		wasCurrent, err := deleteContext(path, rest[0])
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("deleted context %q from %s\n", rest[0], path)
+		if wasCurrent {
+			fmt.Println("it was the current context; pick another with: resonatectl config use <name>")
+		}
+		return 0
+
+	case sub == "set-context" && len(rest) == 1:
+		var u contextUpdate
+		if set["controller"] {
+			u.Controller = controller
+		}
+		sources := 0
+		for _, on := range []bool{set["token"], *tokenStdin, set["token-env"], set["token-file"]} {
+			if on {
+				sources++
+			}
+		}
+		if sources > 1 {
+			return fail(fmt.Errorf("give at most one of --token, --token-stdin, --token-env and --token-file"))
+		}
+		switch {
+		case set["token"]:
+			u.TokenKind, u.TokenValue = "token", *token
+		case *tokenStdin:
+			b, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return fail(err)
+			}
+			u.TokenKind, u.TokenValue = "token", strings.TrimSpace(string(b))
+		case set["token-env"]:
+			u.TokenKind, u.TokenValue = "token_env", *tokenEnv
+		case set["token-file"]:
+			u.TokenKind, u.TokenValue = "token_file", *tokenFile
+		}
+		if u.TokenKind != "" && u.TokenValue == "" {
+			return fail(fmt.Errorf("the token is empty"))
+		}
+		u.Use = *use
+		created, err := setContext(path, rest[0], u)
+		if err != nil {
+			return fail(err)
+		}
+		verb := "updated"
+		if created {
+			verb = "created"
+		}
+		fmt.Printf("context %q %s in %s\n", rest[0], verb, path)
+		if cfg, _, err := loadConfig(path); err == nil {
+			fmt.Printf("current context: %s\n", cfg.CurrentContext)
+		}
 		return 0
 	}
 	fs.Usage()
@@ -220,13 +292,15 @@ func configCmd(args []string) int {
 }
 
 // splitPositionals separates the non-flag arguments from the flags (and their
-// values), in any order. Every flag here takes a value.
+// values), in any order. Every flag takes a value except the booleans below.
 func splitPositionals(args []string) (positionals, flagArgs []string) {
+	boolFlags := map[string]bool{"use": true, "token-stdin": true}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if strings.HasPrefix(a, "-") {
 			flagArgs = append(flagArgs, a)
-			if !strings.Contains(a, "=") && i+1 < len(args) {
+			name := strings.TrimLeft(strings.SplitN(a, "=", 2)[0], "-")
+			if !strings.Contains(a, "=") && !boolFlags[name] && i+1 < len(args) {
 				i++
 				flagArgs = append(flagArgs, args[i])
 			}

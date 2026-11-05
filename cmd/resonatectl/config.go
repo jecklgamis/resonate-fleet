@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -297,4 +298,201 @@ func useContext(path, name string) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// --- editing -----------------------------------------------------------------
+//
+// set-context and delete-context edit the file as a YAML node tree, not by
+// decoding into Config and re-encoding it, so comments and layout survive.
+
+// contextUpdate is what `config set-context` changes. A nil Controller leaves
+// the controller alone; TokenKind is "" (leave the token alone), "token",
+// "token_env" or "token_file".
+type contextUpdate struct {
+	Controller *string
+	TokenKind  string
+	TokenValue string
+	Use        bool
+}
+
+func mapGet(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
+func mapSet(m *yaml.Node, key string, v *yaml.Node) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			m.Content[i+1] = v
+			return
+		}
+	}
+	k := &yaml.Node{}
+	k.SetString(key)
+	m.Content = append(m.Content, k, v)
+}
+
+func mapDel(m *yaml.Node, key string) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			// The parser hangs a comment above the first key on that key, so
+			// deleting the key would delete the comment; pass it to the next key.
+			if hc := m.Content[i].HeadComment; hc != "" && i+2 < len(m.Content) {
+				next := m.Content[i+2]
+				if next.HeadComment == "" {
+					next.HeadComment = hc
+				} else {
+					next.HeadComment = hc + "\n" + next.HeadComment
+				}
+			}
+			m.Content = append(m.Content[:i], m.Content[i+2:]...)
+			return
+		}
+	}
+}
+
+func scalar(s string) *yaml.Node {
+	n := &yaml.Node{}
+	n.SetString(s)
+	return n
+}
+
+func newMapping() *yaml.Node { return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"} }
+
+// loadDoc parses the file at path into a node tree whose root is a mapping. A
+// missing file gives an empty one (created is true).
+func loadDoc(path string) (doc *yaml.Node, root *yaml.Node, created bool, err error) {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		root = newMapping()
+		return &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}, root, true, nil
+	}
+	if err != nil {
+		return nil, nil, false, err
+	}
+	doc = &yaml.Node{}
+	if err := yaml.Unmarshal(b, doc); err != nil {
+		return nil, nil, false, fmt.Errorf("parsing %s: %w", path, err)
+	}
+	if len(doc.Content) == 0 { // an empty file
+		root = newMapping()
+		doc = &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}
+		return doc, root, false, nil
+	}
+	root = doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil, nil, false, fmt.Errorf("%s: want a mapping at the top level", path)
+	}
+	return doc, root, false, nil
+}
+
+// saveDoc writes doc to path atomically, after checking that the result still
+// loads as a valid config. New files (and their directory) are private: 0600
+// and 0700. An existing file keeps its mode.
+func saveDoc(path string, doc *yaml.Node) error {
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	mode := os.FileMode(0o600)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, out.Bytes(), mode); err != nil {
+		return err
+	}
+	if _, _, err := loadConfig(tmp); err != nil { // never replace a good file with a bad one
+		os.Remove(tmp)
+		return fmt.Errorf("refusing to write an invalid config: %w", err)
+	}
+	return os.Rename(tmp, path)
+}
+
+// setContext creates or updates a context. Creating one needs a controller.
+// Choosing a token source replaces any other, since a context holds at most
+// one. The first context in a file becomes current; Use makes this one current.
+func setContext(path, name string, u contextUpdate) (created bool, err error) {
+	if name == "" {
+		return false, fmt.Errorf("a context name is required")
+	}
+	if u.Controller != nil {
+		if err := checkControllerURL(*u.Controller); err != nil {
+			return false, err
+		}
+	}
+	doc, root, _, err := loadDoc(path)
+	if err != nil {
+		return false, err
+	}
+	ctxs := mapGet(root, "contexts")
+	if ctxs == nil || ctxs.Kind != yaml.MappingNode {
+		ctxs = newMapping()
+		mapSet(root, "contexts", ctxs)
+	}
+	ctx := mapGet(ctxs, name)
+	if ctx == nil || ctx.Kind != yaml.MappingNode {
+		if u.Controller == nil {
+			return false, fmt.Errorf("context %q does not exist; give --controller to create it", name)
+		}
+		created = true
+		ctx = newMapping()
+		mapSet(ctxs, name, ctx)
+	}
+	if u.Controller != nil {
+		mapSet(ctx, "controller", scalar(*u.Controller))
+	}
+	if u.TokenKind != "" {
+		for _, k := range []string{"token", "token_env", "token_file"} {
+			mapDel(ctx, k)
+		}
+		mapSet(ctx, u.TokenKind, scalar(u.TokenValue))
+	}
+	cur := mapGet(root, "current-context")
+	if u.Use || cur == nil || cur.Value == "" {
+		mapSet(root, "current-context", scalar(name))
+	}
+	return created, saveDoc(path, doc)
+}
+
+// deleteContext removes a context; it reports whether it was the current one,
+// in which case current-context is cleared.
+func deleteContext(path, name string) (wasCurrent bool, err error) {
+	cfg, exists, err := loadConfig(path)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, fmt.Errorf("no config file at %s", path)
+	}
+	if _, ok := cfg.Contexts[name]; !ok {
+		return false, fmt.Errorf("context %q not found in %s (have: %s)", name, path, contextNames(cfg))
+	}
+	doc, root, _, err := loadDoc(path)
+	if err != nil {
+		return false, err
+	}
+	mapDel(mapGet(root, "contexts"), name)
+	if cfg.CurrentContext == name {
+		mapDel(root, "current-context")
+		wasCurrent = true
+	}
+	return wasCurrent, saveDoc(path, doc)
+}
+
+func checkControllerURL(u string) error {
+	p, err := url.Parse(u)
+	if err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.Host == "" || p.User != nil {
+		return fmt.Errorf("invalid controller %q: want http(s)://host[:port]", u)
+	}
+	return nil
 }

@@ -46,9 +46,9 @@ contexts:
     token_file: ~/.secrets/resonate-staging   # read from this file
 ```
 
-Give a context at most one of `token`, `token_env` and `token_file`. Create the file
-with `chmod 600`; `resonatectl` warns if a file holding an inline `token` is readable
-by other users. Unknown fields are an error, so a misspelling is not silently ignored.
+Give a context at most one of `token`, `token_env` and `token_file`. `resonatectl`
+warns if a file holding an inline `token` is readable by other users; fix it with
+`chmod 600` (a file it creates already is). Unknown fields are an error, so a misspelling is not silently ignored.
 
 ```sh
 resonatectl workers                          # uses current-context
@@ -57,8 +57,41 @@ resonatectl config view                      # the contexts, tokens hidden
 resonatectl config use prod                  # switch current-context
 ```
 
-`config use` edits only the `current-context` line, so your comments and layout are
-kept.
+### Creating and editing contexts
+
+You can write the file by hand, or let `resonatectl` do it:
+
+```sh
+# the token comes from standard input, so it never reaches your shell history
+printf '%s' "$TOKEN" | resonatectl config set-context prod \
+  --controller https://resonate-controller.example.com --token-stdin --use
+
+resonatectl config set-context local --controller http://localhost:58090 --token ctl-secret
+resonatectl config set-context staging --controller https://staging.example.com --token-env STAGING_TOKEN
+resonatectl config set-context staging --token-file ~/.secrets/resonate-staging   # change one field
+resonatectl config delete-context staging
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--controller URL` | The controller. Required when creating a context |
+| `--token-stdin` | Read the token from standard input and store it in the file. **Recommended** for a stored token |
+| `--token T` | Store this token in the file. It lands in your shell history and in `ps`, so prefer `--token-stdin` |
+| `--token-env VAR` | Read the token from this environment variable each time |
+| `--token-file FILE` | Read the token from this file each time |
+| `--use` | Also make this the current context |
+
+- Give at most one token option. Choosing one replaces whatever the context had.
+  Flags you leave out keep their current value, so you can change just the token or
+  just the controller.
+- The first context you create becomes the current one. Later ones don't take over
+  unless you pass `--use`.
+- A new file is created with mode `0600` in a `0700` directory.
+- Edits change only what you asked for and keep your comments and layout. If the
+  file can't be loaded (for example a misspelled field), `set-context` refuses to
+  touch it, and it never replaces a valid file with an invalid one.
+- `delete-context` on the current context clears `current-context`; pick another with
+  `config use`.
 
 ### Which setting wins
 

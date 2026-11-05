@@ -89,3 +89,11 @@ func TestSplitPositionals(t *testing.T) {
 		t.Fatalf("pos=%q flags=%q", pos, fl)
 	}
 }
+
+func TestSplitPositionalsKnowsBooleanFlags(t *testing.T) {
+	// --use and --token-stdin take no value, so they must not swallow the name.
+	pos, fl := splitPositionals([]string{"set-context", "--use", "prod", "--token-stdin", "--controller", "http://c"})
+	if strings.Join(pos, ",") != "set-context,prod" || strings.Join(fl, ",") != "--use,--token-stdin,--controller,http://c" {
+		t.Fatalf("pos=%q flags=%q", pos, fl)
+	}
+}
