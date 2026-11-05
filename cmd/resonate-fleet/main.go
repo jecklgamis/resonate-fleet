@@ -11,11 +11,19 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
 
-const usage = "usage: resonate-fleet run --workers workers.yaml [--out dir] [--poll 2s] <scenario.yaml|scenario-url>"
+const usage = `usage: resonate-fleet run --workers workers.yaml [--out dir] [--poll 2s] <scenario.yaml|scenario-url>
+       resonate-fleet run --controller URL [--label k=v] [--data file] [--out dir] [--poll 2s] <scenario.yaml|scenario-url>`
+
+// multiFlag is a repeatable string flag.
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] != "run" {
@@ -25,6 +33,10 @@ func main() {
 
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	workersPath := fs.String("workers", "", "Path to a workers.yaml listing the resonate-worker instances to fan out to (required)")
+	controllerURL := fs.String("controller", "", "URL of a resonate-controller to run the scenario through (alternative to --workers); its token is read from $CONTROLLER_TOKEN")
+	var labels, dataFiles multiFlag
+	fs.Var(&labels, "label", "With --controller: only run on workers with this label, key=value (repeatable)")
+	fs.Var(&dataFiles, "data", "With --controller: a feeder/body file to upload with the scenario (repeatable)")
 	outDir := fs.String("out", "", "Directory to write each worker's reports into, one subdirectory per worker (default: ./fleet-run-<timestamp>)")
 	poll := fs.Duration("poll", 2*time.Second, "How often to poll each worker's task status")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage); fs.PrintDefaults() }
@@ -39,8 +51,12 @@ func main() {
 		fs.Usage()
 		os.Exit(2)
 	}
-	if *workersPath == "" {
-		fmt.Fprintln(os.Stderr, "error: --workers is required")
+	if (*workersPath == "") == (*controllerURL == "") {
+		fmt.Fprintln(os.Stderr, "error: give exactly one of --workers or --controller")
+		os.Exit(2)
+	}
+	if *workersPath != "" && (len(labels) > 0 || len(dataFiles) > 0) {
+		fmt.Fprintln(os.Stderr, "error: --label and --data only work with --controller")
 		os.Exit(2)
 	}
 	if *outDir == "" {
@@ -53,6 +69,22 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if *controllerURL != "" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		c := newControllerClient(*controllerURL, os.Getenv("CONTROLLER_TOKEN"))
+		results, err := runViaController(ctx, c, scenarioPath, dataFiles, labels, *outDir, *poll)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		printTable(os.Stdout, results)
+		if anyFailed(results) {
+			os.Exit(1)
+		}
+		return
+	}
+
 	cfg, err := LoadFleetConfig(*workersPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)

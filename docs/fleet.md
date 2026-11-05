@@ -76,6 +76,24 @@ command must run where pod IPs are reachable and the name resolves: inside the
 cluster, for example as a Job or from a debug pod. From a laptop, use a
 `workers` list with `kubectl port-forward` instead.
 
+## Through a controller
+
+If your workers register with a [controller](controller.md), skip `workers.yaml`
+and the per-worker routes altogether. The controller fans the run out and the fleet
+command only talks to it:
+
+```sh
+CONTROLLER_TOKEN=... ./resonate-fleet run --controller https://controller.example.com scenario.yaml
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--controller` | Controller URL. Use this **or** `--workers`, not both. Its token is read from `$CONTROLLER_TOKEN` |
+| `--label key=value` | Only run on workers registered with this label (repeatable) |
+| `--data file` | A feeder/body file to upload with the scenario (repeatable; not with a scenario URL) |
+
+Output, exit code and `--out`/`--poll` behave as below.
+
 ## Run
 
 ```sh
