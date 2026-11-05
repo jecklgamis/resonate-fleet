@@ -23,7 +23,7 @@ curl -H "Authorization: Bearer $TOKEN" -F "file=@examples/scenario.yaml" $WORKER
 The worker answers `202 Accepted` straight away and runs
 `resonate run scenario.yaml` in the background. The scenario is whatever
 `resonate run` accepts — here is the sample in
-[`examples/scenario.yaml`](https://github.com/jecklgamis/resonate-worker/blob/main/examples/scenario.yaml):
+[`examples/scenario.yaml`](https://github.com/jecklgamis/resonate-fleet/blob/main/examples/scenario.yaml):
 
 ```yaml
 protocol: http

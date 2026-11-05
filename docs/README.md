@@ -1,12 +1,19 @@
-# resonate-worker
+# resonate-fleet
 
-An HTTP wrapper around [`resonate run`](https://jecklgamis.github.io/resonate/): push a
-scenario file, the worker runs resonate against it, you poll for status and
-pull back the report.
+Run [`resonate`](https://jecklgamis.github.io/resonate/) load tests from a fleet of
+workers. The pieces:
+
+- **`resonate-worker`**: an HTTP wrapper around `resonate run`. Push a scenario
+  file, the worker runs resonate against it, you poll for status and pull back the
+  report.
+- **`resonate-controller`**: workers register with it, and one API runs a scenario
+  on all of them. See [Controller](controller.md).
+- **`resonatectl`**: the command-line client for the controller. See
+  [resonatectl](resonatectl.md).
 
 > **Alpha**: APIs, flags and behavior may change without notice, like resonate itself.
 
-This site covers **installing and using** resonate-worker. For what goes
+This site covers **installing and using** resonate-fleet. For what goes
 *inside* a scenario file (targets, flows, load profiles, assertions), see the
 [resonate docs](https://jecklgamis.github.io/resonate/) — the worker hands your
 file to `resonate run` unchanged.

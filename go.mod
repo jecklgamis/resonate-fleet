@@ -1,4 +1,4 @@
-module github.com/jecklgamis/resonate-worker
+module github.com/jecklgamis/resonate-fleet
 
 go 1.26.1
 

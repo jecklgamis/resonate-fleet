@@ -1,8 +1,16 @@
-# resonate-worker
+# resonate-fleet
 
-An HTTP wrapper around [`resonate run`](https://github.com/jecklgamis/resonate):
-push a scenario file, the worker runs resonate against it, you poll for status
-and pull back the report.
+Run [`resonate`](https://github.com/jecklgamis/resonate) load tests from a fleet
+of workers. Three components:
+
+| Component | What it is |
+| --- | --- |
+| `resonate-worker` | An HTTP wrapper around `resonate run`: push a scenario file, the worker runs resonate against it, you poll for status and pull back the report |
+| `resonate-controller` | Workers register with it; one API runs a scenario on all of them (or a labelled subset) |
+| `resonatectl` | The command-line client for the controller: `run` a scenario, list `workers` |
+
+You can use a worker on its own, which is the quick start below, and add the
+controller when you have more than one.
 
 > **Alpha**: APIs and behavior may change without notice.
 

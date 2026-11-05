@@ -13,14 +13,14 @@ user and keeps task workspaces under `/app/workspace`.
 
 ## Building from Source
 
-Requires Go (see [`go.mod`](https://github.com/jecklgamis/resonate-worker/blob/main/go.mod)
+Requires Go (see [`go.mod`](https://github.com/jecklgamis/resonate-fleet/blob/main/go.mod)
 for the pinned version) and the `resonate` binary on `$PATH`, or pointed to by
 `RESONATE_BIN`. To get `resonate`, see
 [its install page](https://jecklgamis.github.io/resonate/#/install).
 
 ```sh
-git clone https://github.com/jecklgamis/resonate-worker.git
-cd resonate-worker
+git clone https://github.com/jecklgamis/resonate-fleet.git
+cd resonate-fleet
 make build            # builds ./resonate-worker, ./resonate-controller and ./resonatectl
 API_TOKEN=some-secret-token ./resonate-worker
 ```
