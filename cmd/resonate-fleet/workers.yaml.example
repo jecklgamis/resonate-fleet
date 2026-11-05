@@ -1,0 +1,10 @@
+workers:
+  - name: us-east
+    url: https://worker-us-east.example.com
+    token_env: US_EAST_TOKEN
+  - name: eu-west
+    url: https://worker-eu-west.example.com
+    token_env: EU_WEST_TOKEN
+  - name: ap-south
+    url: https://worker-ap-south.example.com
+    token_env: AP_SOUTH_TOKEN

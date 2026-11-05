@@ -1,5 +1,6 @@
 build:
 	go build -o resonate-worker .
+	go build -o resonate-fleet ./cmd/resonate-fleet
 
 test:
 	go test ./...

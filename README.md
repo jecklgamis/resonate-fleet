@@ -9,6 +9,11 @@ upload/taskId/report shape, for resonate instead of Gatling.
 It is one worker. Each instance executes whatever is submitted to it and keeps
 no relationship with any other worker — see [What this isn't](#what-this-isnt).
 
+Running the same scenario against several of these (e.g. one per region/AZ)?
+See [`cmd/resonate-fleet`](cmd/resonate-fleet), a small dispatcher that
+submits to a fixed list of workers in parallel, polls each independently, and
+pulls back every report — without merging them.
+
 ## Quick start
 
 ### Docker
