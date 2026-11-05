@@ -60,6 +60,19 @@ func main() {
 		log.Printf("uploading task artifacts to s3://%s/%s", bucket, s3store.Prefix)
 	}
 
+	name, labels, err := workerIdentity()
+	if err != nil {
+		log.Fatal(err)
+	}
+	metrics, err := MetricsFromEnv(context.Background(), name, labels)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if metrics != nil {
+		log.Printf("pushing metrics over OTLP as worker %q", name)
+	}
+	runner.Metrics = metrics
+
 	srv := &Server{
 		Fetcher:   fetcher,
 		Store:     store,
@@ -122,6 +135,7 @@ func main() {
 	if err := server.Shutdown(sctx); err != nil {
 		log.Printf("http shutdown: %v", err)
 	}
+	metrics.Shutdown(sctx)
 }
 
 func envOr(key, def string) string {

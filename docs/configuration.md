@@ -19,6 +19,7 @@ The worker is configured with environment variables only. All are optional.
 | `S3_PREFIX` | *(unset)* | Key prefix inside the bucket |
 | `S3_ENDPOINT` | *(unset)* | Endpoint URL for an S3-compatible service such as MinIO (uses path-style addressing) |
 | `SCENARIO_SOURCE_TOKEN` | *(unset)* | Bearer token sent with every scenario fetch, for sources that need auth. It goes to **every** allowed source, so allow only hosts you trust with it |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(unset)* | When set, the worker pushes live request metrics over OTLP/HTTP. Also `OTEL_METRIC_EXPORT_INTERVAL` (ms, default 10000 here). See [Metrics](metrics.md) |
 
 The Docker image sets `WORKSPACE_DIR=/app/workspace` and
 `RESONATE_BIN=/usr/local/bin/resonate`.

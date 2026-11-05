@@ -244,6 +244,9 @@ type Runner struct {
 
 	// Artifacts, if set, receives the task's files once resonate has exited.
 	Artifacts ArtifactStore
+
+	// Metrics, if set, receives live request metrics while resonate runs.
+	Metrics *Metrics
 }
 
 // Run blocks until resonate exits. It is meant to be called in its own
@@ -272,7 +275,9 @@ func (r *Runner) Run(t *Task) {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 
+	stopMetrics := r.Metrics.TrackTask(filepath.Join(t.Dir, "results.jsonl"))
 	runErr := cmd.Run()
+	stopMetrics()
 	exitCode := 0
 	if runErr != nil {
 		exitCode = 1

@@ -63,6 +63,15 @@ s3:
   prefix: ""
   endpoint: ""
 
+# Push live request metrics (requests, errors, latency histogram) over OTLP/HTTP
+# while a task runs - see docs/metrics.md. Empty endpoint disables it. Point it at
+# an OpenTelemetry Collector, e.g. http://otel-collector.monitoring.svc:4318.
+# exportInterval is in milliseconds (the SDK's own default is 60000; the worker
+# uses 10000 when this is empty).
+otel:
+  endpoint: ""
+  exportInterval: ""
+
 serviceAccount:
   # Specifies whether a service account should be created
   create: true

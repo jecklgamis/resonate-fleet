@@ -3,6 +3,7 @@
 - [Usage](usage.md)
 - [API Reference](api.md)
 - [Configuration](configuration.md)
+- [Metrics](metrics.md)
 - [Controller](controller.md)
 - [resonatectl](resonatectl.md)
 - [Deployment](deployment.md)

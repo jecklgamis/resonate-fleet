@@ -24,6 +24,7 @@ controller when you have more than one.
 - Refuses absolute paths and `..` in scenario file references
 - Optional upload of task files and results to S3
 - Registers with a controller by heartbeat (with labels) and deregisters on shutdown
+- Live metrics pushed over OTLP while a run is going ([Metrics](docs/metrics.md))
 - Bearer-token auth; the Docker image bundles `resonate`
 
 **resonate-controller**
@@ -120,6 +121,7 @@ locally with `docsify serve docs`:
 | [Usage](docs/usage.md) | Submit, poll, fetch; gating a CI pipeline |
 | [API Reference](docs/api.md) | Every endpoint, status codes, auth |
 | [Configuration](docs/configuration.md) | Environment variables, the workspace |
+| [Metrics](docs/metrics.md) | Push live request metrics over OpenTelemetry (OTLP) |
 | [Controller](docs/controller.md) | Workers register; one API runs a scenario on all of them |
 | [resonatectl](docs/resonatectl.md) | The CLI for the controller |
 | [Deployment](docs/deployment.md) | Docker, Helm, running on a network |

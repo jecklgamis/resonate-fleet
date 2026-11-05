@@ -103,6 +103,24 @@ func (r *Registrar) register(ctx context.Context) error {
 	return nil
 }
 
+// workerIdentity is the worker's name (WORKER_NAME, else the hostname) and its
+// labels (WORKER_LABELS), shared by controller registration and metrics.
+func workerIdentity() (string, map[string]string, error) {
+	name := os.Getenv("WORKER_NAME")
+	if name == "" {
+		h, err := os.Hostname()
+		if err != nil {
+			return "", nil, fmt.Errorf("WORKER_NAME is unset and the hostname is unavailable: %w", err)
+		}
+		name = h
+	}
+	labels, err := parseLabels(os.Getenv("WORKER_LABELS"))
+	if err != nil {
+		return "", nil, err
+	}
+	return name, labels, nil
+}
+
 // registrarFromEnv builds a Registrar when CONTROLLER_URL is set, else returns
 // nil. WORKER_NAME defaults to the hostname; ADVERTISE_URL defaults to this
 // host's address on the interface that routes to the controller.
@@ -111,13 +129,9 @@ func registrarFromEnv(addr, workerToken string) (*Registrar, error) {
 	if ctrl == "" {
 		return nil, nil
 	}
-	name := os.Getenv("WORKER_NAME")
-	if name == "" {
-		h, err := os.Hostname()
-		if err != nil {
-			return nil, fmt.Errorf("WORKER_NAME is unset and the hostname is unavailable: %w", err)
-		}
-		name = h
+	name, labels, err := workerIdentity()
+	if err != nil {
+		return nil, err
 	}
 	advertise := os.Getenv("ADVERTISE_URL")
 	if advertise == "" {
@@ -125,10 +139,6 @@ func registrarFromEnv(addr, workerToken string) (*Registrar, error) {
 		if advertise, err = detectAdvertiseURL(ctrl, addr); err != nil {
 			return nil, fmt.Errorf("ADVERTISE_URL is unset and could not be detected: %w", err)
 		}
-	}
-	labels, err := parseLabels(os.Getenv("WORKER_LABELS"))
-	if err != nil {
-		return nil, err
 	}
 	interval := 10 * time.Second
 	if v := os.Getenv("HEARTBEAT_INTERVAL"); v != "" {

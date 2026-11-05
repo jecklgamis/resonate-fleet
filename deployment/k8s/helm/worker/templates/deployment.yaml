@@ -71,6 +71,14 @@ spec:
               value: {{ .Values.s3.endpoint | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.otel.endpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            {{- if .Values.otel.exportInterval }}
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: {{ .Values.otel.exportInterval | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.scenarioSources }}
             - name: SCENARIO_SOURCES
               value: {{ join "," .Values.scenarioSources | quote }}
