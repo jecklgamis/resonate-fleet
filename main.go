@@ -60,6 +60,15 @@ func main() {
 		Workspace: workspace,
 	}
 
+	reg, err := registrarFromEnv(addr, token)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if reg != nil {
+		log.Printf("registering with controller %s as %q at %s", reg.ControllerURL, reg.Name, reg.URL)
+		go reg.Run(context.Background())
+	}
+
 	mux := http.NewServeMux()
 	srv.Routes(mux)
 

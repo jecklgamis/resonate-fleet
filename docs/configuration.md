@@ -9,6 +9,12 @@ The worker is configured with environment variables only. All are optional.
 | `WORKSPACE_DIR` | `workspace` | Where each task's files are written, one subdirectory per task |
 | `RESONATE_BIN` | `resonate` | Path to the resonate binary, if it isn't on `$PATH` |
 | `SCENARIO_SOURCES` | *(unset)* | Comma-separated `http(s)://host[:port][/path-prefix]` entries the worker may fetch scenarios from. **Unset means submitting by URL is refused.** An invalid entry stops the worker at startup. See [Scenarios by URL](usage.md#scenarios-by-url) |
+| `CONTROLLER_URL` | *(unset)* | When set, the worker registers with this [controller](controller.md) and re-registers as a heartbeat |
+| `CONTROLLER_TOKEN` | *(unset)* | Bearer token for the controller |
+| `WORKER_NAME` | hostname | Name the worker registers under |
+| `ADVERTISE_URL` | detected | Address the controller reaches this worker at. If unset, the worker uses its own address on the interface that routes to the controller, plus the `ADDR` port |
+| `WORKER_LABELS` | *(unset)* | `key=value,key=value`, e.g. `region=sgp1,az=a`, for selecting workers in a run |
+| `HEARTBEAT_INTERVAL` | `10s` | How often to re-register |
 | `S3_BUCKET` | *(unset)* | When set, each finished task's files (scenario, uploaded data files, `report.*`, `results.jsonl`, `log.txt`) are uploaded to `s3://<bucket>/<S3_PREFIX>/<taskId>/`. Credentials come from the standard AWS chain (env vars, shared config, IRSA, instance role) |
 | `S3_PREFIX` | *(unset)* | Key prefix inside the bucket |
 | `S3_ENDPOINT` | *(unset)* | Endpoint URL for an S3-compatible service such as MinIO (uses path-style addressing) |

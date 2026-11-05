@@ -4,6 +4,7 @@
 - [API Reference](api.md)
 - [Configuration](configuration.md)
 - [Fleet](fleet.md)
+- [Controller](controller.md)
 - [Deployment](deployment.md)
 - [Operations](operations.md)
 - [Architecture](architecture.md)
