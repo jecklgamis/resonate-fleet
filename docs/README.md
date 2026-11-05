@@ -69,7 +69,9 @@ every endpoint.
 ### 4. Many workers: add a controller
 
 With more than one worker, don't submit to each by hand. Run a controller, point
-each worker at it, and use `resonatectl`:
+each worker at it, and use `resonatectl`. (`resonatectl` talks to a controller, not
+to a worker directly, so use one even with a single worker. It is one small binary;
+`scripts/run-local-controller.sh` starts one locally.)
 
 ```sh
 docker run -d -p 58090:58090 -e CONTROLLER_TOKEN=ctl-secret jecklgamis/resonate-controller:main

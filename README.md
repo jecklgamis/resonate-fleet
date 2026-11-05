@@ -14,6 +14,8 @@ controller when you have more than one.
 
 > **Alpha**: APIs and behavior may change without notice.
 
+**📖 Full user guide: https://jecklgamis.github.io/resonate-fleet/**
+
 ## Quick start
 
 ```sh
@@ -31,6 +33,7 @@ API_TOKEN=some-secret-token ./resonate-worker   # listens on :58080
 To try a controller and a worker together on your machine, run
 `scripts/run-local-controller.sh`, `scripts/run-local-worker.sh` and then
 `scripts/run-local-scenario.sh` (see [Running Locally](docs/install.md#running-locally)).
+
 Submit a scenario, poll it, fetch the report:
 
 ```sh
@@ -54,10 +57,17 @@ Running the same scenario against several workers (one per region or AZ)?
 [`resonatectl`](docs/resonatectl.md) runs it on all of them through the
 [controller](docs/controller.md) and collects each report, without merging them.
 
+`resonatectl` talks to a controller, not to a worker directly. Even with a single
+worker, the easiest way to use it is to run a controller beside it: it is one small
+binary, and `scripts/run-local-controller.sh` starts one in a single command. With no
+controller, use the worker's HTTP API with `curl`, as above.
+
 ## Documentation
 
-The full user guide lives in [`docs/`](docs), a docsify site you can browse on
-GitHub or serve locally with `docsify serve docs`:
+The full user guide is published at
+**[jecklgamis.github.io/resonate-fleet](https://jecklgamis.github.io/resonate-fleet/)**.
+Its source is [`docs/`](docs), a docsify site you can also browse on GitHub or serve
+locally with `docsify serve docs`:
 
 | Page | Covers |
 | --- | --- |
