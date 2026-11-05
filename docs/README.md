@@ -22,7 +22,7 @@ file to `resonate run` unchanged.
 | Bearer-token auth | One `API_TOKEN` gates every endpoint except `/healthz`. See [Configuration](configuration.md) |
 | Survives restarts | Each task's state is saved to its workspace, so the task list and reports are still there after a restart. See [Operations](operations.md) |
 | Request and task logging | One log line per request plus task lifecycle events; bearer tokens are never logged |
-| Fleet dispatcher | `resonate-fleet` fans one scenario out to several workers (one per region or AZ) and collects each report without merging them. See [Fleet](fleet.md) |
+| Controller and CLI | Workers register with a controller; `resonatectl` runs one scenario on all of them (or a labelled subset) and collects each report without merging them. See [Controller](controller.md) and [resonatectl](resonatectl.md) |
 | Docker and Helm | A public image that bundles a pinned `resonate`, and a Helm chart. See [Deployment](deployment.md) |
 
 ## Quick Start

@@ -11,27 +11,27 @@ func TestExtractPositionalAllowsScenarioBeforeOrAfterFlags(t *testing.T) {
 	}{
 		{
 			name:     "scenario last",
-			args:     []string{"--workers", "w.yaml", "--poll", "1s", "scenario.yaml"},
+			args:     []string{"--controller", "http://c", "--poll", "1s", "scenario.yaml"},
 			wantPos:  "scenario.yaml",
-			wantRest: []string{"--workers", "w.yaml", "--poll", "1s"},
+			wantRest: []string{"--controller", "http://c", "--poll", "1s"},
 		},
 		{
 			name:     "scenario first (the order that used to silently drop flags)",
-			args:     []string{"scenario.yaml", "--workers", "w.yaml", "--poll", "1s"},
+			args:     []string{"scenario.yaml", "--controller", "http://c", "--poll", "1s"},
 			wantPos:  "scenario.yaml",
-			wantRest: []string{"--workers", "w.yaml", "--poll", "1s"},
+			wantRest: []string{"--controller", "http://c", "--poll", "1s"},
 		},
 		{
 			name:     "scenario in the middle",
-			args:     []string{"--workers", "w.yaml", "scenario.yaml", "--poll", "1s"},
+			args:     []string{"--controller", "http://c", "scenario.yaml", "--poll", "1s"},
 			wantPos:  "scenario.yaml",
-			wantRest: []string{"--workers", "w.yaml", "--poll", "1s"},
+			wantRest: []string{"--controller", "http://c", "--poll", "1s"},
 		},
 		{
 			name:     "equals form",
-			args:     []string{"--workers=w.yaml", "scenario.yaml"},
+			args:     []string{"--controller=http://c", "scenario.yaml"},
 			wantPos:  "scenario.yaml",
-			wantRest: []string{"--workers=w.yaml"},
+			wantRest: []string{"--controller=http://c"},
 		},
 	}
 	for _, c := range cases {

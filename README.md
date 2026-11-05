@@ -40,8 +40,8 @@ allowlisted URL (`SCENARIO_SOURCES`) — see the
 [Usage guide](docs/usage.md#scenarios-by-url).
 
 Running the same scenario against several workers (one per region or AZ)?
-[`resonate-fleet`](cmd/resonate-fleet) submits to all of them in parallel and
-collects each report, without merging them.
+[`resonatectl`](docs/resonatectl.md) runs it on all of them through the
+[controller](docs/controller.md) and collects each report, without merging them.
 
 ## Documentation
 
@@ -55,7 +55,8 @@ GitHub or serve locally with `docsify serve docs`:
 | [Usage](docs/usage.md) | Submit, poll, fetch; gating a CI pipeline |
 | [API Reference](docs/api.md) | Every endpoint, status codes, auth |
 | [Configuration](docs/configuration.md) | Environment variables, the workspace |
-| [Fleet](docs/fleet.md) | `resonate-fleet` and `workers.yaml` |
+| [Controller](docs/controller.md) | Workers register; one API runs a scenario on all of them |
+| [resonatectl](docs/resonatectl.md) | The CLI for the controller |
 | [Deployment](docs/deployment.md) | Docker, Helm, running on a network |
 | [Operations](docs/operations.md) | Logging, persistence, disk, concurrency, security |
 | [Architecture](docs/architecture.md) | How it works, and what it isn't |

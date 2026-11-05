@@ -42,11 +42,6 @@ scenarioSources: []
 #  - https://config.example.com/scenarios
 scenarioSourceToken: ""
 
-# A headless Service (<release>-headless) so resonate-fleet can find every pod by
-# DNS - see docs/fleet.md "Kubernetes". Disable if you don't use the fleet command.
-headlessService:
-  enabled: true
-
 # Register with a resonate-controller (see docs/controller.md). Empty url
 # disables it. The worker finds its own pod address unless advertiseUrl is set.
 # token goes in the same Secret as apiToken (with existingSecretName, add a

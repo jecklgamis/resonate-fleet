@@ -21,7 +21,7 @@ for the pinned version) and the `resonate` binary on `$PATH`, or pointed to by
 ```sh
 git clone https://github.com/jecklgamis/resonate-worker.git
 cd resonate-worker
-make build            # builds ./resonate-worker and ./resonate-fleet
+make build            # builds ./resonate-worker, ./resonate-controller and ./resonatectl
 API_TOKEN=some-secret-token ./resonate-worker
 ```
 

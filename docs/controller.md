@@ -81,20 +81,15 @@ A run's status is `running` until every worker finishes, then `done` if all did
 and `failed` if any worker failed or could not be reached (its row shows
 `error`). Runs are kept in memory only.
 
-## From the fleet command
+## From the command line
 
-`resonate-fleet` can talk to the controller instead of to the workers. The
-controller fans the scenario out; the fleet command needs a route to the
-controller only:
+[`resonatectl`](resonatectl.md) is the CLI for the controller:
 
 ```sh
-CONTROLLER_TOKEN=secret resonate-fleet run \
-  --controller https://controller.example.com \
-  --label region=sgp1 --data users.csv scenario.yaml
+export RESONATE_CONTROLLER=https://controller.example.com CONTROLLER_TOKEN=secret
+resonatectl workers
+resonatectl run --label region=sgp1 --data users.csv scenario.yaml
 ```
-
-It prints the same per-worker table and writes each worker's reports under
-`fleet-run-<timestamp>/<worker>/`. See [Fleet](fleet.md).
 
 ## Limits of this version
 

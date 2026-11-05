@@ -60,14 +60,16 @@ resubmit it.
 Several tasks running at once compete for the worker's resources, and the load
 generator becomes the bottleneck. See [Operations](operations.md#concurrency).
 
-## `resonate-fleet` exits non-zero
+## `resonatectl run` exits non-zero
 
 At least one worker's task didn't finish `done`, or a worker was unreachable. The
 table's `ERROR` column says which; each reachable worker's log is saved under
-`fleet-run-<timestamp>/<worker-name>/log`.
+`resonatectl-run-<timestamp>/<worker-name>/log`.
 
-## `resonate-fleet` says an env var is not set
+## `resonatectl` says there is no controller, or gets `401`
 
-Each `token_env` in `workers.yaml` has to be exported in the shell you run it from.
-For the local sample, `API_TOKEN` must be set, to any value if the worker has no
-token. This check runs before anything is submitted.
+Pass `--controller URL` or export `RESONATE_CONTROLLER`, and export the
+controller's token as `CONTROLLER_TOKEN`. A `401` means the token is missing or
+wrong; `409 no live workers match` means no worker has registered within the last
+30 seconds (or none has the `--label` you asked for) - check
+`resonatectl workers`.

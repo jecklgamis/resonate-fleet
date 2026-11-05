@@ -85,7 +85,7 @@ func TestRunViaController(t *testing.T) {
 
 func TestControllerStartRejections(t *testing.T) {
 	c := newControllerClient("http://127.0.0.1:1", "")
-	if _, err := c.Start(t.Context(), "https://x/s.yaml", []string{"f.csv"}, nil); err == nil || !strings.Contains(err.Error(), "--data") {
+	if _, _, err := c.Start(t.Context(), "https://x/s.yaml", []string{"f.csv"}, nil); err == nil || !strings.Contains(err.Error(), "--data") {
 		t.Fatalf("URL + --data: %v", err)
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -93,8 +93,41 @@ func TestControllerStartRejections(t *testing.T) {
 	}))
 	defer srv.Close()
 	c = newControllerClient(srv.URL, "")
-	_, err := c.Start(t.Context(), "https://x/s.yaml", nil, nil)
+	_, _, err := c.Start(t.Context(), "https://x/s.yaml", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "no live workers") {
 		t.Fatalf("409: %v", err)
+	}
+}
+
+func TestWorkersListing(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/workers" || r.URL.Query().Get("label") != "region=sgp1" || r.Header.Get("Authorization") != "Bearer ct" {
+			t.Errorf("bad request: %s auth=%q", r.URL, r.Header.Get("Authorization"))
+		}
+		fmt.Fprint(w, `[{"name":"b","url":"http://10.0.0.2:58080","labels":{"region":"sgp1","az":"a"},"last_seen":"2026-01-01T00:00:00Z"},
+			{"name":"a","url":"http://10.0.0.1:58080","last_seen":"2026-01-01T00:00:00Z"}]`)
+	}))
+	defer srv.Close()
+	ws, err := newControllerClient(srv.URL, "ct").Workers(t.Context(), []string{"region=sgp1"})
+	if err != nil || len(ws) != 2 {
+		t.Fatalf("workers = %v, %v", ws, err)
+	}
+	var buf strings.Builder
+	printWorkers(&buf, ws, time.Date(2026, 1, 1, 0, 0, 30, 0, time.UTC))
+	out := buf.String()
+	if strings.Index(out, "\na ") > strings.Index(out, "\nb ") || !strings.Contains(out, "az=a,region=sgp1") || !strings.Contains(out, "30s ago") {
+		t.Fatalf("table:\n%s", out)
+	}
+}
+
+func TestPrintTableIsSortedByWorkerName(t *testing.T) {
+	var buf strings.Builder
+	printTable(&buf, []workerResult{
+		{Name: "zulu", Status: "done", Report: &reportSummary{Requests: 1, SuccessRate: 1}},
+		{Name: "alpha", Status: "failed", Err: "boom"},
+	})
+	out := buf.String()
+	if strings.Index(out, "alpha") > strings.Index(out, "zulu") || !strings.Contains(out, "boom") {
+		t.Errorf("table:\n%s", out)
 	}
 }

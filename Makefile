@@ -1,6 +1,6 @@
 build:
 	go build -o resonate-worker .
-	go build -o resonate-fleet ./cmd/resonate-fleet
+	go build -o resonatectl ./cmd/resonatectl
 	go build -o resonate-controller ./cmd/resonate-controller
 
 test:

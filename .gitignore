@@ -1,5 +1,5 @@
 /resonate-worker
-/resonate-fleet
+/resonatectl
 /resonate-controller
 /workspace/
-/fleet-run-*/
+/resonatectl-run-*/

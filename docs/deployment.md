@@ -55,7 +55,7 @@ why it is exempt from auth.
 Task state lives in each pod's own workspace and workspaces aren't shared. A
 second replica behind the same Service can't answer a poll for a task that landed
 on the first one. If you need more capacity, run **more workers** and address
-them individually (see [Fleet](fleet.md)) rather than scaling one Service.
+them individually through a [controller](controller.md) rather than scaling one Service.
 
 ## Putting It on a Network
 

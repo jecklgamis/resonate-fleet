@@ -3,7 +3,7 @@
 // report" shape. Push a scenario file via HTTP; it runs resonate against it as
 // a subprocess and serves back the report, the raw results, and the console
 // log. It is a single worker: it executes whatever is submitted to it and
-// keeps no relationship with the other workers in a fleet (see README's
+// keeps no relationship with the other workers (see README's
 // "What this isn't").
 package main
 

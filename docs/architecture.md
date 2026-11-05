@@ -32,7 +32,8 @@ client ──POST /task──▶ worker ──▶ workspace/<id>/scenario.yaml
 | `server.go` | HTTP handlers, bearer-token auth, request logging |
 | `source.go` | Fetching scenarios by URL: the allowlist, redirect checks, size cap |
 | `task.go` | The `Task` and `Store` types, `task.json` persistence, and the `Runner` that executes resonate |
-| `cmd/resonate-fleet` | The separate fan-out CLI; it talks to workers only over the public API |
+| `cmd/resonate-controller` | The controller: workers register with it and it fans a scenario out to them over the public API |
+| `cmd/resonatectl` | The CLI for the controller: run a scenario, list workers |
 
 ## Design Notes
 
@@ -53,9 +54,9 @@ client ──POST /task──▶ worker ──▶ workspace/<id>/scenario.yaml
 
 ## What This Isn't
 
-- **No fleet coordination.** Submitting the same scenario to five workers in five
+- **No cross-worker coordination.** Submitting the same scenario to five workers in five
   regions and combining their reports into one number is on you. A worker is
-  deliberately just the one-node piece; [`resonate-fleet`](fleet.md) automates the
+  deliberately just the one-node piece; [`resonatectl`](resonatectl.md) automates the
   submitting and collecting, not the combining.
 - **No database.** Task state is a JSON file per task. Listing is a walk of the
   in-memory map, fine for thousands of tasks, not for millions.

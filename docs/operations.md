@@ -81,7 +81,7 @@ generator becomes the bottleneck), so:
 
 - run one scenario at a time per worker, or
 - size the worker for the sum of everything you submit at once, or
-- use more workers — see [Fleet](fleet.md).
+- use more workers — see [Controller](controller.md).
 
 ## Security
 

@@ -11,7 +11,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 )
 
@@ -22,6 +24,13 @@ type ControllerClient struct {
 	URL   string
 	Token string
 	HTTP  *http.Client
+}
+
+// isScenarioURL reports whether the scenario argument is a URL for the workers
+// to fetch themselves (it must be under their SCENARIO_SOURCES), rather than a
+// local file to upload.
+func isScenarioURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
 }
 
 func newControllerClient(u, token string) *ControllerClient {
@@ -61,14 +70,14 @@ func (c *ControllerClient) do(ctx context.Context, method, path, contentType str
 
 // Start submits the scenario (a local file with optional data files, or a URL
 // for the workers to fetch) to workers matching labels, and returns the run id.
-func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, dataFiles, labels []string) (string, error) {
+func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, dataFiles, labels []string) (string, []string, error) {
 	var (
 		body io.Reader
 		ct   string
 	)
 	if isScenarioURL(scenarioPath) {
 		if len(dataFiles) > 0 {
-			return "", fmt.Errorf("--data can't be combined with a scenario URL")
+			return "", nil, fmt.Errorf("--data can't be combined with a scenario URL")
 		}
 		b, _ := json.Marshal(map[string]string{"scenarioUrl": scenarioPath})
 		body, ct = bytes.NewReader(b), "application/json"
@@ -76,11 +85,11 @@ func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, dataF
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
 		if err := addFile(mw, "file", scenarioPath); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		for _, d := range dataFiles {
 			if err := addFile(mw, "files", d); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		}
 		mw.Close()
@@ -96,20 +105,21 @@ func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, dataF
 	}
 	resp, err := c.do(ctx, http.MethodPost, path, ct, body)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusAccepted {
-		return "", fmt.Errorf("starting run: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+		return "", nil, fmt.Errorf("starting run: %s: %s", resp.Status, strings.TrimSpace(string(b)))
 	}
 	var out struct {
-		RunID string `json:"runId"`
+		RunID   string   `json:"runId"`
+		Workers []string `json:"workers"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil || out.RunID == "" {
-		return "", fmt.Errorf("controller returned no runId")
+		return "", nil, fmt.Errorf("controller returned no runId")
 	}
-	return out.RunID, nil
+	return out.RunID, out.Workers, nil
 }
 
 func addFile(mw *multipart.Writer, field, path string) error {
@@ -179,18 +189,18 @@ func (c *ControllerClient) fetch(ctx context.Context, runID, worker, name, dest 
 // runViaController runs the scenario through the controller and returns one
 // result per worker, with each worker's reports written under outDir/<worker>/.
 func runViaController(ctx context.Context, c *ControllerClient, scenarioPath string, dataFiles, labels []string, outDir string, poll time.Duration) ([]workerResult, error) {
-	id, err := c.Start(ctx, scenarioPath, dataFiles, labels)
+	id, names, err := c.Start(ctx, scenarioPath, dataFiles, labels)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("run %s started on the controller\n", id)
+	fmt.Printf("run %s started on %d worker(s): %s\n", id, len(names), strings.Join(names, ", "))
 	run, err := c.Wait(ctx, id, poll)
 	if err != nil {
 		return nil, err
 	}
 	var results []workerResult
 	for _, w := range run.Workers {
-		res := workerResult{Worker: Worker{Name: w.Name}, TaskID: w.TaskID, Status: w.Status, ExitCode: w.ExitCode, Err: w.Error}
+		res := workerResult{Name: w.Name, TaskID: w.TaskID, Status: w.Status, ExitCode: w.ExitCode, Err: w.Error}
 		if w.TaskID != "" {
 			for _, name := range []string{"report.html", "report.json", "results.jsonl", "log"} {
 				dest := filepath.Join(outDir, w.Name, name)
@@ -211,4 +221,62 @@ func runViaController(ctx context.Context, c *ControllerClient, scenarioPath str
 		results = append(results, res)
 	}
 	return results, nil
+}
+
+// registeredWorker mirrors one entry of the controller's GET /workers.
+type registeredWorker struct {
+	Name     string            `json:"name"`
+	URL      string            `json:"url"`
+	Labels   map[string]string `json:"labels"`
+	LastSeen time.Time         `json:"last_seen"`
+}
+
+// Workers lists the live workers matching labels.
+func (c *ControllerClient) Workers(ctx context.Context, labels []string) ([]registeredWorker, error) {
+	q := url.Values{}
+	for _, l := range labels {
+		q.Add("label", l)
+	}
+	path := "/workers"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	resp, err := c.do(ctx, http.MethodGet, path, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("listing workers: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	var out []registeredWorker
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("parsing workers: %w", err)
+	}
+	return out, nil
+}
+
+// printWorkers writes one row per worker, sorted by name.
+func printWorkers(w io.Writer, ws []registeredWorker, now time.Time) {
+	sort.Slice(ws, func(i, j int) bool { return ws[i].Name < ws[j].Name })
+	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tURL\tLABELS\tLAST SEEN")
+	for _, x := range ws {
+		keys := make([]string, 0, len(x.Labels))
+		for k := range x.Labels {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		pairs := make([]string, len(keys))
+		for i, k := range keys {
+			pairs[i] = k + "=" + x.Labels[k]
+		}
+		labels := strings.Join(pairs, ",")
+		if labels == "" {
+			labels = "-"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s ago\n", x.Name, x.URL, labels, now.Sub(x.LastSeen).Round(time.Second))
+	}
+	tw.Flush()
 }

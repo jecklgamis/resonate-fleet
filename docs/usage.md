@@ -201,4 +201,4 @@ curl -fsS "${auth[@]}" "$WORKER/task/$id/report.html" -o report.html   # keep as
 ```
 
 To run the same scenario against several workers at once, use
-[`resonate-fleet`](fleet.md) instead of scripting this loop per worker.
+[`resonatectl`](resonatectl.md) instead of scripting this loop per worker.
