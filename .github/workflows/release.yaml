@@ -53,7 +53,7 @@ jobs:
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
           ldflags="-s -w -X main.version=${{ github.ref_name }}"
-          go build -trimpath -ldflags "$ldflags" -o "resonate-worker$ext" .
+          go build -trimpath -ldflags "$ldflags" -o "resonate-worker$ext" ./cmd/resonate-worker
           go build -trimpath -ldflags "$ldflags" -o "resonate-controller$ext" ./cmd/resonate-controller
           go build -trimpath -ldflags "$ldflags" -o "resonatectl$ext" ./cmd/resonatectl
 

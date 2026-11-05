@@ -10,9 +10,9 @@ ENV PATH=/usr/local/go/bin:$PATH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY *.go ./
+COPY cmd/resonate-worker ./cmd/resonate-worker
 COPY cmd/resonatectl ./cmd/resonatectl
-RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /out/resonate-worker . && \
+RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /out/resonate-worker ./cmd/resonate-worker && \
     CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /out/resonatectl ./cmd/resonatectl
 
 FROM ubuntu:24.04
