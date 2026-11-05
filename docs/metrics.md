@@ -22,6 +22,31 @@ export interval is `OTEL_METRIC_EXPORT_INTERVAL` in milliseconds; the worker use
 Point it at an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/),
 which can forward to Prometheus (remote write), Datadog and others.
 
+## Trying it locally
+
+`deployment/local/` has a Docker Compose stack: an OpenTelemetry Collector that
+takes the worker's OTLP, Prometheus, and Grafana with a ready-made `resonate-fleet`
+dashboard (requests per second by worker and status class, p95 latency, errors,
+tasks running).
+
+```sh
+docker compose -f deployment/local/docker-compose.yaml up -d
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 OTEL_METRIC_EXPORT_INTERVAL=2000 \
+  WORKER_LABELS=region=local scripts/run-local-worker.sh
+scripts/run-local-scenario.sh      # with scripts/run-local-controller.sh running
+```
+
+Open Grafana at <http://127.0.0.1:3000> (anonymous admin) and the dashboard
+`resonate-fleet`. Prometheus is at <http://localhost:9090>, and
+`curl localhost:8889/metrics` shows what the collector exposes. If something else
+already uses port 3000, change the host side of the `grafana` port mapping. Stop
+the stack with `docker compose -f deployment/local/docker-compose.yaml down`.
+
+In Prometheus the metrics are named `resonate_worker_requests_total`,
+`resonate_worker_errors_total` (present once an error has happened),
+`resonate_worker_request_duration_milliseconds_{bucket,sum,count}` and
+`resonate_worker_tasks_running`.
+
 ## What is sent
 
 | Metric | Type | Attributes |

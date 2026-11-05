@@ -1,0 +1,36 @@
+# Local metrics stack for the worker's OTLP push (docs/metrics.md):
+#   collector (OTLP in) -> Prometheus -> Grafana
+#
+#   docker compose -f deployment/local/docker-compose.yaml up
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 scripts/run-local-worker.sh
+#
+# Grafana: http://localhost:3000 (anonymous, admin). Prometheus: http://localhost:9090.
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4318:4318"   # OTLP/HTTP, where the worker pushes
+      - "8889:8889"   # Prometheus format, to curl
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on: [otel-collector]
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus]
