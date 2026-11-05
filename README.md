@@ -16,6 +16,34 @@ controller when you have more than one.
 
 **📖 Full user guide: https://jecklgamis.github.io/resonate-fleet/**
 
+## Features
+
+**resonate-worker**
+- Submit a scenario by multipart upload or by `scenarioUrl` (allowlisted), with feeder and other data files alongside it
+- Poll task status; fetch the report and logs
+- Refuses absolute paths and `..` in scenario file references
+- Optional upload of task files and results to S3
+- Registers with a controller by heartbeat (with labels) and deregisters on shutdown
+- Bearer-token auth; the Docker image bundles `resonate`
+
+**resonate-controller**
+- Workers register and heartbeat; entries expire after a TTL (in-memory registry)
+- `GET /workers`, filterable by label (`?label=k=v`)
+- `POST /runs` fans a scenario out to the matching workers, polls them, and proxies each report and log
+- Targeting: label filter first, then a random subset with `workers=N` or `workers=P%`
+- Bearer-token auth
+
+**resonatectl**
+- `run` a scenario with data files and see a per-worker results table; `workers` lists the fleet
+- `--label`, `--workers N|P%`, `--out`, `--poll`
+- kubectl-style config file with contexts (`config view|use|set-context|delete-context`)
+- Settings resolve flags, then environment, then the current context; warns on a world-readable config holding a token
+
+**Packaging**
+- Docker Hub images (Ubuntu 24.04, amd64), Helm charts for the worker and controller
+- Tagged releases with binaries for five platforms and checksums
+- Scripts to run a controller, a worker and a scenario locally
+
 ## Quick start
 
 ```sh
