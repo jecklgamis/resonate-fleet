@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -77,7 +79,12 @@ func submit(t *testing.T, mux http.Handler, scenario string) string {
 
 func waitDone(t *testing.T, mux http.Handler, id string) snapshot {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	return waitDoneWithin(t, mux, id, 5)
+}
+
+func waitDoneWithin(t *testing.T, mux http.Handler, id string, seconds int) snapshot {
+	t.Helper()
+	deadline := time.Now().Add(time.Duration(seconds) * time.Second)
 	for time.Now().Before(deadline) {
 		req := httptest.NewRequest(http.MethodGet, "/task/"+id, nil)
 		rec := httptest.NewRecorder()
@@ -214,4 +221,16 @@ func TestAuthDisabledWhenTokenEmpty(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("no token configured: got %d, want 200", rec.Code)
 	}
+}
+
+func logWriter(w io.Writer) (io.Writer, int) {
+	oldOut, oldFlags := log.Writer(), log.Flags()
+	log.SetOutput(w)
+	log.SetFlags(0)
+	return oldOut, oldFlags
+}
+
+func restoreLog(w io.Writer, flags int) {
+	log.SetOutput(w)
+	log.SetFlags(flags)
 }
