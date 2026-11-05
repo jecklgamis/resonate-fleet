@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
 	"regexp"
 	"sort"
@@ -38,39 +39,73 @@ func NewRegistry(ttl time.Duration) *Registry {
 	return &Registry{TTL: ttl, now: time.Now, m: map[string]Entry{}}
 }
 
-// Register adds or refreshes a worker. Name is used in URLs and as an output
-// directory, so it is restricted to a plain token.
-func (r *Registry) Register(e Entry) error {
+// Registration outcomes. A heartbeat from an unchanged worker is "refreshed".
+const (
+	Registered = "registered" // a worker not seen before (or since it expired)
+	Changed    = "changed"    // a known worker whose URL or labels differ
+	Refreshed  = "refreshed"  // a plain heartbeat
+)
+
+// Register adds or refreshes a worker and says which of the three it was. Name
+// is used in URLs and as an output directory, so it is restricted to a plain
+// token.
+func (r *Registry) Register(e Entry) (string, error) {
 	if !validName.MatchString(e.Name) {
-		return fmt.Errorf("invalid worker name %q: want letters, digits, '.', '_' or '-'", e.Name)
+		return "", fmt.Errorf("invalid worker name %q: want letters, digits, '.', '_' or '-'", e.Name)
 	}
 	u, err := url.Parse(e.URL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
-		return fmt.Errorf("invalid worker url %q: want http(s)://host[:port]", e.URL)
+		return "", fmt.Errorf("invalid worker url %q: want http(s)://host[:port]", e.URL)
 	}
 	e.LastSeen = r.now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	outcome := Registered
+	if old, ok := r.m[e.Name]; ok && !old.LastSeen.Before(r.now().Add(-r.TTL)) {
+		outcome = Refreshed
+		if old.URL != e.URL || !maps.Equal(old.Labels, e.Labels) {
+			outcome = Changed
+		}
+	}
 	r.m[e.Name] = e
-	return nil
+	return outcome, nil
 }
 
-func (r *Registry) Remove(name string) {
+// Remove drops a worker, reporting whether it was registered.
+func (r *Registry) Remove(name string) (Entry, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	e, ok := r.m[name]
 	delete(r.m, name)
+	return e, ok
+}
+
+// Reap drops the workers not seen within the TTL and returns them, so the
+// caller can log each one. Live only filters; this is what forgets.
+func (r *Registry) Reap() []Entry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cutoff := r.now().Add(-r.TTL)
+	var gone []Entry
+	for name, e := range r.m {
+		if e.LastSeen.Before(cutoff) {
+			delete(r.m, name)
+			gone = append(gone, e)
+		}
+	}
+	sort.Slice(gone, func(i, j int) bool { return gone[i].Name < gone[j].Name })
+	return gone
 }
 
 // Live returns the workers seen within the TTL whose labels include every
-// key=value in selector, sorted by name. Expired entries are dropped.
+// key=value in selector, sorted by name.
 func (r *Registry) Live(selector map[string]string) []Entry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cutoff := r.now().Add(-r.TTL)
 	var out []Entry
-	for name, e := range r.m {
+	for _, e := range r.m {
 		if e.LastSeen.Before(cutoff) {
-			delete(r.m, name)
 			continue
 		}
 		if matches(e.Labels, selector) {

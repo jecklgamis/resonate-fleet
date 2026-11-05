@@ -19,6 +19,7 @@ func main() {
 	timeout := envDuration(time.Hour, os.Getenv("RUN_TIMEOUT"))
 
 	srv := &Server{Registry: NewRegistry(ttl), Runs: NewRuns(poll, timeout)}
+	go srv.ReapLoop(max(ttl/3, time.Second), nil)
 	mux := http.NewServeMux()
 	srv.Routes(mux)
 

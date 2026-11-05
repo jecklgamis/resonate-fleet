@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -189,3 +192,101 @@ func TestAuthAndRegistryRules(t *testing.T) {
 		t.Fatal("expired worker still live")
 	}
 }
+
+func TestRegistryOutcomesAndReap(t *testing.T) {
+	r := NewRegistry(time.Minute)
+	now := time.Now()
+	r.now = func() time.Time { return now }
+	e := Entry{Name: "a", URL: "http://x:1", Labels: map[string]string{"r": "1"}}
+	for i, want := range []string{Registered, Refreshed} {
+		if got, err := r.Register(e); err != nil || got != want {
+			t.Fatalf("register #%d = %q, %v; want %q", i, got, err, want)
+		}
+	}
+	e.Labels = map[string]string{"r": "2"}
+	if got, _ := r.Register(e); got != Changed {
+		t.Fatalf("label change = %q", got)
+	}
+	e.URL = "http://x:2"
+	if got, _ := r.Register(e); got != Changed {
+		t.Fatalf("url change = %q", got)
+	}
+	if gone := r.Reap(); len(gone) != 0 {
+		t.Fatalf("reaped live worker: %v", gone)
+	}
+	now = now.Add(2 * time.Minute)
+	if gone := r.Reap(); len(gone) != 1 || gone[0].Name != "a" {
+		t.Fatalf("reap = %v", gone)
+	}
+	if got, _ := r.Register(e); got != Registered {
+		t.Fatalf("after expiry = %q, want a fresh registration", got)
+	}
+	if _, ok := r.Remove("a"); !ok {
+		t.Fatal("remove of a live worker reported not found")
+	}
+	if _, ok := r.Remove("a"); ok {
+		t.Fatal("second remove reported found")
+	}
+}
+
+func TestRegistrationLogging(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	_, h := newController(t)
+	register(t, h, "a", "http://x:1", "secret-token", map[string]string{"r": "1"})
+	register(t, h, "a", "http://x:1", "secret-token", map[string]string{"r": "1"}) // heartbeat: silent
+	register(t, h, "a", "http://x:2", "secret-token", map[string]string{"r": "1"})
+	call(h, "DELETE", "/workers/a", "", nil)
+	call(h, "DELETE", "/workers/ghost", "", nil)
+	out := buf.String()
+	for _, want := range []string{
+		"worker registered: a url=http://x:1 labels=[r=1] (1 live)",
+		"worker re-registered with changes: a url=http://x:2",
+		"worker deregistered: a url=http://x:2",
+		`deregistration for unknown worker "ghost"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log missing %q:\n%s", want, out)
+		}
+	}
+	if n := strings.Count(out, "worker registered"); n != 1 {
+		t.Errorf("heartbeat was logged: %d registrations in\n%s", n, out)
+	}
+	if strings.Contains(out, "secret-token") {
+		t.Error("worker token leaked into the log")
+	}
+}
+
+func TestReapLoopLogsExpiredWorkers(t *testing.T) {
+	var buf syncBuffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	srv := &Server{Registry: NewRegistry(30 * time.Millisecond), Runs: NewRuns(time.Second, time.Second)}
+	stop := make(chan struct{})
+	defer close(stop)
+	go srv.ReapLoop(10*time.Millisecond, stop)
+	if _, err := srv.Registry.Register(Entry{Name: "gone", URL: "http://x:9", Labels: map[string]string{"r": "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 200; i++ {
+		if strings.Contains(buf.String(), "worker expired (no heartbeat for 30ms): gone url=http://x:9 labels=[r=1] (0 live)") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("no expiry log line:\n%s", buf.String())
+}
+
+// syncBuffer is a bytes.Buffer safe for the log package to write while a test reads.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+func (s *syncBuffer) String() string { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }

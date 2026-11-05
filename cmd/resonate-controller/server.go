@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -40,16 +42,65 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("want a JSON body {name, url, token, labels}: %w", err))
 		return
 	}
-	if err := s.Registry.Register(Entry{Name: req.Name, URL: req.URL, Token: req.Token, Labels: req.Labels}); err != nil {
+	outcome, err := s.Registry.Register(Entry{Name: req.Name, URL: req.URL, Token: req.Token, Labels: req.Labels})
+	if err != nil {
+		log.Printf("registration from %s rejected: %v", r.RemoteAddr, err)
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	// Heartbeats arrive every few seconds per worker; only log what changes.
+	switch outcome {
+	case Registered:
+		log.Printf("worker registered: %s (%s)", describe(req.Name, req.URL, req.Labels), s.liveCount())
+	case Changed:
+		log.Printf("worker re-registered with changes: %s (%s)", describe(req.Name, req.URL, req.Labels), s.liveCount())
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeregister(w http.ResponseWriter, r *http.Request) {
-	s.Registry.Remove(r.PathValue("name"))
+	name := r.PathValue("name")
+	if e, ok := s.Registry.Remove(name); ok {
+		log.Printf("worker deregistered: %s (%s)", describe(e.Name, e.URL, e.Labels), s.liveCount())
+	} else {
+		log.Printf("deregistration for unknown worker %q from %s", name, r.RemoteAddr)
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) liveCount() string {
+	return fmt.Sprintf("%d live", len(s.Registry.Live(nil)))
+}
+
+// describe renders a worker as name url=... labels=k=v,k=v for log lines.
+func describe(name, url string, labels map[string]string) string {
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	pairs := make([]string, len(keys))
+	for i, k := range keys {
+		pairs[i] = k + "=" + labels[k]
+	}
+	return fmt.Sprintf("%s url=%s labels=[%s]", name, url, strings.Join(pairs, ","))
+}
+
+// ReapLoop forgets workers that stopped heartbeating, logging each, until stop
+// is closed.
+func (s *Server) ReapLoop(every time.Duration, stop <-chan struct{}) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-t.C:
+			for _, e := range s.Registry.Reap() {
+				log.Printf("worker expired (no heartbeat for %s): %s (%s)", s.Registry.TTL, describe(e.Name, e.URL, e.Labels), s.liveCount())
+			}
+		}
+	}
 }
 
 func (s *Server) handleWorkers(w http.ResponseWriter, r *http.Request) {
