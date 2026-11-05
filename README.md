@@ -11,6 +11,18 @@ no relationship with any other worker — see [What this isn't](#what-this-isnt)
 
 ## Quick start
 
+### Docker
+
+```sh
+docker run -it --name resonate-worker -p 58080:58080 \
+  -e API_TOKEN=some-secret-token jecklgamis/resonate-worker:main
+```
+
+The image bundles a pinned `resonate` release (see `Dockerfile`'s `RESONATE_VERSION`
+build arg) — nothing else to install.
+
+### From source
+
 Needs the `resonate` binary on `$PATH` (or point `RESONATE_BIN` at it) — see
 [resonate's install docs](https://github.com/jecklgamis/resonate/blob/main/docs/install.md).
 
@@ -75,6 +87,24 @@ Environment variables, all optional:
 | `WORKSPACE_DIR` | `workspace` | Where each task's scenario file and reports are written, one subdirectory per task |
 | `RESONATE_BIN` | `resonate` | Path to the resonate binary, if it isn't on `$PATH` |
 
+## Deploying to Kubernetes
+
+A Helm chart lives in `deployment/k8s/helm/chart`, mirroring gatling-server's own:
+
+```sh
+cd deployment/k8s/helm
+helm install resonate-worker ./chart --set apiToken=some-secret-token
+```
+
+Key values (see `values.yaml` for the full set, each with its own comment):
+
+| Value | Default | Meaning |
+| --- | --- | --- |
+| `apiToken` | `"default"` | The bearer token — override it, or set `existingSecretName` to source `API_TOKEN` from a Secret you manage |
+| `persistence.enabled` | `false` | Keep task workspaces (scenario + reports) on a PVC across pod restarts |
+| `ingress.enabled` | `false` | Expose it outside the cluster |
+| `replicaCount` / `autoscaling` | `1` / off | **Keep at 1.** Task status is in-memory per pod and workspaces aren't shared, so a second replica behind the same Service can't answer a poll for a task that landed on the first one |
+
 ## What this isn't
 
 - **No fleet coordination.** Submitting the same scenario to five workers in
@@ -87,8 +117,9 @@ Environment variables, all optional:
 - **No queue or concurrency cap.** Every submission starts a subprocess
   immediately; there's no limit on how many run at once. Fine for occasional
   manual submissions, not yet for something you'd point a scheduler at.
-- **No S3/SNS, Docker image, or Helm chart (yet).** gatling-server has all
-  three; this doesn't, on purpose, until the core shape has proven itself.
+- **No S3/SNS artifact upload or notifier events (yet).** gatling-server has
+  both; this doesn't, on purpose, until the core shape has proven itself.
+  Docker image and Helm chart are here, though — see above.
 
 ## License
 

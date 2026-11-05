@@ -1,0 +1,125 @@
+# Default values for resonate-worker.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# This chart deploys one resonate-worker, and resonate-worker keeps task
+# status in memory and task workspaces on local disk - nothing is shared
+# across replicas. Leave replicaCount (and autoscaling) at 1 unless/until a
+# shared store exists; running several replicas behind one Service today just
+# means a client's poll of GET /task/{id} can land on a pod that never ran it.
+replicaCount: 1
+
+image:
+  repository: jecklgamis/resonate-worker
+  # image.tag defaults to a mutable tag ("main"), so IfNotPresent would let a
+  # node keep serving a stale cached image after a new push under the same
+  # tag - use a pinned/immutable tag (e.g. a commit SHA) if you want to go
+  # back to IfNotPresent.
+  pullPolicy: Always
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "main"
+
+# jecklgamis/resonate-worker is a public image; only set this if you're
+# pointing image.repository at a private registry/fork.
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# API_TOKEN gates every /task* endpoint (Authorization: Bearer <apiToken>);
+# /healthz stays open either way, for the liveness/readiness probes below.
+# Defaults to "default" so this works out of the box, but should be
+# overridden for anything beyond a quick trial. Set existingSecretName
+# instead to source it from a Secret you manage yourself (must contain a
+# data/stringData key named API_TOKEN) without putting it in values.yaml/git.
+apiToken: "default"
+existingSecretName: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+  # Set fsGroup if persistence.enabled and the volume needs to be writable by
+  # the container's non-root "app" user (see Dockerfile) on first mount.
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/issuer: "letsencrypt-prod"
+    # A scenario file is small, but a submitted report/results upload isn't
+    # bounded by this chart - keep proxy-body-size unlimited rather than
+    # tuning it per deployment.
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+  hosts:
+    - host: resonate-worker.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: resonate-worker-tls
+      hosts:
+        - resonate-worker.example.com
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# Off by default: a worker currently has no concurrency cap on how many
+# resonate subprocesses it runs at once (see the main README), so scaling
+# replicas doesn't scale capacity in a controlled way yet.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 4
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# resonate-worker keeps each task's scenario file and reports
+# (report.html/report.json/results.jsonl/log.txt) on local disk, under
+# WORKSPACE_DIR, with no other durability. Enable this to survive pod
+# restarts; leave it off for disposable/CI use. Task status itself is still
+# only in memory - a restart loses the task list either way, even with
+# persistence on (see the main README's "What this isn't").
+persistence:
+  enabled: false
+  size: 10Gi
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
