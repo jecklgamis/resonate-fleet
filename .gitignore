@@ -6,3 +6,4 @@ resonatectl-run-*/
 /deployment/k8s/helm/*.tgz
 /deployment/k8s/helm/dry-run-*.txt
 .DS_Store
+.idea/
