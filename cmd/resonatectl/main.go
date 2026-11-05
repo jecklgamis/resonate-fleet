@@ -19,11 +19,15 @@ import (
 const usage = `usage:
   resonatectl run [flags] <scenario.yaml|scenario-url>   run a scenario on the registered workers
   resonatectl workers [flags]                            list the registered workers
+  resonatectl version                                    print the version
 
 flags (both commands):
   --controller URL   resonate-controller to talk to (default $RESONATE_CONTROLLER)
   --label k=v        only workers with this label (repeatable)
 the controller's token is read from $CONTROLLER_TOKEN.`
+
+// version is stamped at release time with -ldflags "-X main.version=<tag>".
+var version = "dev"
 
 // multiFlag is a repeatable string flag.
 type multiFlag []string
@@ -41,6 +45,8 @@ func main() {
 		os.Exit(runCmd(os.Args[2:]))
 	case "workers":
 		os.Exit(workersCmd(os.Args[2:]))
+	case "version", "-v", "--version":
+		fmt.Println("resonatectl", version)
 	case "-h", "--help", "help":
 		fmt.Println(usage)
 	default:

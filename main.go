@@ -18,6 +18,9 @@ import (
 	"time"
 )
 
+// version is stamped at release time with -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 func main() {
 	addr := envOr("ADDR", ":58080")
 	workspace := envOr("WORKSPACE_DIR", "workspace")
@@ -87,7 +90,7 @@ func main() {
 	if token == "" {
 		log.Println("warning: API_TOKEN is not set — every endpoint is open to anyone who can reach this address")
 	}
-	log.Printf("resonate-worker listening on %s (workspace=%s, resonate=%s)", addr, workspace, resonateBin)
+	log.Printf("resonate-worker %s listening on %s (workspace=%s, resonate=%s)", version, addr, workspace, resonateBin)
 
 	server := &http.Server{Addr: addr, Handler: handler}
 	serveErr := make(chan error, 1)

@@ -11,6 +11,9 @@ import (
 	"time"
 )
 
+// version is stamped at release time with -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 func main() {
 	addr := envOr("ADDR", ":58090")
 	token := os.Getenv("CONTROLLER_TOKEN") // "" disables auth - local use only
@@ -26,7 +29,7 @@ func main() {
 	if token == "" {
 		log.Println("warning: CONTROLLER_TOKEN is not set - every endpoint is open to anyone who can reach this address")
 	}
-	log.Printf("resonate-controller listening on %s (worker ttl=%s)", addr, ttl)
+	log.Printf("resonate-controller %s listening on %s (worker ttl=%s)", version, addr, ttl)
 	log.Fatal(http.ListenAndServe(addr, withAuth(token, mux)))
 }
 

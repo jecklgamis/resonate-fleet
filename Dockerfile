@@ -1,6 +1,7 @@
 FROM ubuntu:24.04 AS build
 ARG GO_VERSION=1.26.1
 ARG TARGETARCH=amd64
+ARG VERSION=dev
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/* && \
@@ -11,8 +12,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go ./
 COPY cmd/resonatectl ./cmd/resonatectl
-RUN CGO_ENABLED=0 go build -o /out/resonate-worker . && \
-    CGO_ENABLED=0 go build -o /out/resonatectl ./cmd/resonatectl
+RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /out/resonate-worker . && \
+    CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /out/resonatectl ./cmd/resonatectl
 
 FROM ubuntu:24.04
 LABEL org.opencontainers.image.authors="jecklgamis@gmail.com"

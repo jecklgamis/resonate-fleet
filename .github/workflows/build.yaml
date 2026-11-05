@@ -38,6 +38,7 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ github.ref_name }}
       - name: Extract metadata (tags, labels) for the controller image
         id: meta-controller
         uses: docker/metadata-action@v6
@@ -51,3 +52,4 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta-controller.outputs.tags }}
           labels: ${{ steps.meta-controller.outputs.labels }}
+          build-args: VERSION=${{ github.ref_name }}
