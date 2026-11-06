@@ -35,6 +35,12 @@ flags (run, workers):
   --config FILE      config file (default ~/.config/resonatectl/config.yaml, or $RESONATECTL_CONFIG)
   --label k=v        only workers with this label (repeatable)
   --workers N|P%     (run) a random N, or P%, of those workers; default all
+  --total-rate R     (run) make R req/s the whole fleet's peak rate, not each worker's:
+                     the scenario's rate and users are scaled to R and split across
+                     the workers (a scenario file only, not a URL)
+  --start-delay D    (run) every worker waits D (default 5s) so they start together; 0
+                     starts each as it receives the scenario. Needs workers' clocks in
+                     sync (NTP); a drifting clock is reported.
   --threshold EXPR   (run) fail unless the fleet total meets it, e.g. p95<300ms,
                      success_rate>=99%, error_rate<1%, rps>=100 (repeatable)
 
@@ -125,6 +131,8 @@ func runCmd(args []string) int {
 	fs.Var(&thresholdExprs, "threshold", "Fail unless the fleet total meets this, like p95<300ms or success_rate>=99% (repeatable)")
 	fs.Var(&dataFiles, "data", "A feeder/body file to upload with the scenario (repeatable; not with a scenario URL)")
 	workers := fs.String("workers", "", "Run on a random subset of the matching workers: a count (4) or a percentage (25%); default all")
+	totalRate := fs.Float64("total-rate", 0, "Make this the fleet's peak request rate: scale the scenario's load to it and split it across the workers (default: every worker runs the scenario as written)")
+	startDelay := fs.Duration("start-delay", 5*time.Second, "Have every worker wait this long before starting, so they begin together; 0 starts each as soon as it has the scenario (a single worker never waits)")
 	outDir := fs.String("out", "", "Directory for each worker's reports, one subdirectory per worker (default ./resonatectl-run-<timestamp>)")
 	poll := fs.Duration("poll", 2*time.Second, "How often to check the run's progress")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage); fs.PrintDefaults() }
@@ -135,6 +143,10 @@ func runCmd(args []string) int {
 	fs.Parse(flagArgs)
 	if scenario == "" || fs.NArg() != 0 {
 		fs.Usage()
+		return 2
+	}
+	if *totalRate < 0 || (*totalRate == 0 && flagSet(fs, "total-rate")) {
+		fmt.Fprintln(os.Stderr, "error: --total-rate must be a number above 0")
 		return 2
 	}
 	thresholds, err := parseThresholds(thresholdExprs)
@@ -159,12 +171,17 @@ func runCmd(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	results, err := runViaController(ctx, c, scenario, startOptions{DataFiles: dataFiles, Labels: *cf.labels, Workers: *workers}, *outDir, *poll)
+	results, err := runViaController(ctx, c, scenario, startOptions{DataFiles: dataFiles, Labels: *cf.labels, Workers: *workers, TotalRate: *totalRate, StartDelay: *startDelay}, *outDir, *poll)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
 	printTable(os.Stdout, results)
+	for _, r := range results {
+		if r.Warning != "" {
+			fmt.Fprintln(os.Stderr, "warning:", r.Warning)
+		}
+	}
 	agg := buildAggregate(*outDir, results)
 	if agg != nil {
 		printAggregate(os.Stdout, agg)
@@ -182,6 +199,17 @@ func runCmd(args []string) int {
 		return 3
 	}
 	return 0
+}
+
+// flagSet reports whether the flag was given on the command line.
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
 }
 
 func abortCmd(args []string) int {

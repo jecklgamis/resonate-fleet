@@ -11,6 +11,7 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,14 @@ type scenarioSpec struct {
 	Body []byte
 	URL  string
 	Data []dataFile
+
+	// Bodies, when set, is each worker's own scenario, in the order of the
+	// workers passed to Start (a split load); otherwise every worker gets Body.
+	Bodies [][]byte
+
+	// StartAt, when set, is the time every worker is asked to start at, so the
+	// run's load begins together.
+	StartAt time.Time
 }
 
 // WorkerRun is one worker's slice of a run.
@@ -39,7 +48,13 @@ type WorkerRun struct {
 	ExitCode int    `json:"exit_code,omitempty"`
 	Error    string `json:"error,omitempty"`
 
+	// Warning is a note about this worker's slice of the run that doesn't make it
+	// fail: it ignored the start time, got the scenario after it, or has a clock
+	// that disagrees with the controller's.
+	Warning string `json:"warning,omitempty"`
+
 	url, token string
+	body       []byte // this worker's own scenario, or nil to send the spec's
 }
 
 // Run is one scenario fanned out to the workers that were live when it started.
@@ -137,8 +152,12 @@ func (rs *Runs) Start(spec scenarioSpec, workers []Entry) (*Run, error) {
 		return nil, err
 	}
 	run := &Run{ID: hex.EncodeToString(b), Scenario: spec.Name, CreatedAt: time.Now()}
-	for _, e := range workers {
-		run.workers = append(run.workers, &WorkerRun{Name: e.Name, Status: "submitting", url: e.URL, token: e.Token})
+	for i, e := range workers {
+		w := &WorkerRun{Name: e.Name, Status: "submitting", url: e.URL, token: e.Token}
+		if i < len(spec.Bodies) {
+			w.body = spec.Bodies[i]
+		}
+		run.workers = append(run.workers, w)
 	}
 	rs.mu.Lock()
 	rs.m[run.ID] = run
@@ -155,12 +174,15 @@ func (rs *Runs) runOne(run *Run, w *WorkerRun, spec scenarioSpec) {
 	defer cancel()
 	fail := func(err error) { run.update(w, func(w *WorkerRun) { w.Status, w.Error = "error", err.Error() }) }
 
-	id, err := rs.submit(ctx, w, spec)
+	id, warn, err := rs.submit(ctx, w, spec)
 	if err != nil {
 		fail(err)
 		return
 	}
-	run.update(w, func(w *WorkerRun) { w.TaskID, w.Status = id, "queued" })
+	run.update(w, func(w *WorkerRun) { w.TaskID, w.Status, w.Warning = id, "queued", warn })
+	if warn != "" {
+		log.Printf("run %s: %s", run.ID, warn)
+	}
 	if run.isAborted() {
 		rs.cancelWorker(w, id) // the abort came while this worker was still submitting
 	}
@@ -251,7 +273,11 @@ func (rs *Runs) do(ctx context.Context, w *WorkerRun, method, path, contentType 
 	return resp, nil
 }
 
-func (rs *Runs) submit(ctx context.Context, w *WorkerRun, spec scenarioSpec) (string, error) {
+// maxClockSkew is how far a worker's clock may differ from the controller's before
+// the run warns that its start is off by about that much.
+const maxClockSkew = 500 * time.Millisecond
+
+func (rs *Runs) submit(ctx context.Context, w *WorkerRun, spec scenarioSpec) (id, warning string, err error) {
 	var (
 		body io.Reader
 		ct   string
@@ -263,7 +289,11 @@ func (rs *Runs) submit(ctx context.Context, w *WorkerRun, spec scenarioSpec) (st
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
 		p, _ := mw.CreateFormFile("file", spec.Name)
-		p.Write(spec.Body)
+		if w.body != nil {
+			p.Write(w.body)
+		} else {
+			p.Write(spec.Body)
+		}
 		for _, d := range spec.Data {
 			p, _ := mw.CreateFormFile("files", d.Name)
 			p.Write(d.Body)
@@ -271,22 +301,53 @@ func (rs *Runs) submit(ctx context.Context, w *WorkerRun, spec scenarioSpec) (st
 		mw.Close()
 		body, ct = &buf, mw.FormDataContentType()
 	}
-	resp, err := rs.do(ctx, w, http.MethodPost, "/task", ct, body)
+	path := "/task"
+	if !spec.StartAt.IsZero() {
+		path += "?startAt=" + url.QueryEscape(spec.StartAt.UTC().Format(time.RFC3339Nano))
+	}
+	resp, err := rs.do(ctx, w, http.MethodPost, path, ct, body)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
+	got := time.Now()
 	if resp.StatusCode != http.StatusAccepted {
-		return "", fmt.Errorf("%s: submit: %s: %s", w.Name, resp.Status, strings.TrimSpace(string(b)))
+		return "", "", fmt.Errorf("%s: submit: %s: %s", w.Name, resp.Status, strings.TrimSpace(string(b)))
 	}
 	var out struct {
-		TaskID string `json:"taskId"`
+		TaskID  string `json:"taskId"`
+		StartAt string `json:"startAt"`
+		Now     string `json:"now"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil || out.TaskID == "" {
-		return "", fmt.Errorf("%s: submit: no taskId in response", w.Name)
+		return "", "", fmt.Errorf("%s: submit: no taskId in response", w.Name)
 	}
-	return out.TaskID, nil
+	if !spec.StartAt.IsZero() {
+		warning = startWarning(w.Name, spec.StartAt, got, out.StartAt, out.Now)
+	}
+	return out.TaskID, warning, nil
+}
+
+// startWarning says what went wrong with a synchronized start, or "" if nothing did.
+// got is when the worker's answer arrived, on the controller's clock; echoed and now
+// are what the worker answered (empty from a worker that predates startAt).
+func startWarning(name string, startAt, got time.Time, echoed, now string) string {
+	if echoed == "" {
+		return fmt.Sprintf("%s: this worker predates synchronized start and began at once, not with the others; upgrade it", name)
+	}
+	if got.After(startAt) {
+		return fmt.Sprintf("%s: received the scenario %s after the start time, so it started late; raise the start delay", name, got.Sub(startAt).Round(time.Millisecond))
+	}
+	if t, err := time.Parse(time.RFC3339Nano, now); err == nil {
+		// The worker stamps its clock just before it answers, so it should read
+		// about got, less the network delay (milliseconds against a 500ms limit).
+		skew := t.Sub(got)
+		if skew > maxClockSkew || skew < -maxClockSkew {
+			return fmt.Sprintf("%s: its clock is about %s %s the controller's, so its start is off by that much; sync it with NTP", name, skew.Abs().Round(time.Millisecond), map[bool]string{true: "ahead of", false: "behind"}[skew > 0])
+		}
+	}
+	return ""
 }
 
 type taskStatus struct {

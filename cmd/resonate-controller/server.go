@@ -10,11 +10,16 @@ import (
 	"mime"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const maxScenarioBytes = 1 << 20
+
+// maxStartDelay is the longest start_delay a run may ask for; the workers refuse a
+// start time further out than this.
+const maxStartDelay = 10 * time.Minute
 
 // Server serves the controller API: worker registration, and runs fanned out
 // across the registered workers.
@@ -158,6 +163,38 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, status, err)
 		return
 	}
+	var warnings []string
+	totalRate := 0.0
+	if q := r.URL.Query().Get("total_rate"); q != "" {
+		v, err := strconv.ParseFloat(q, 64)
+		if err != nil || !(v > 0) {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("invalid total_rate %q: want a number above 0", q))
+			return
+		}
+		if spec.URL != "" {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("total_rate needs an uploaded scenario: the controller can't rewrite one the workers fetch themselves"))
+			return
+		}
+		spec.Bodies, warnings, err = splitScenario(spec.Body, v, len(workers))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		totalRate = v
+	}
+	var startAt time.Time
+	if q := r.URL.Query().Get("start_delay"); q != "" {
+		d, err := time.ParseDuration(q)
+		if err != nil || d < 0 || d > maxStartDelay {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("invalid start_delay %q: want a duration from 0s to %s, like 5s", q, maxStartDelay))
+			return
+		}
+		// One worker has nobody to line up with.
+		if d > 0 && len(workers) > 1 {
+			startAt = time.Now().Add(d)
+			spec.StartAt = startAt
+		}
+	}
 	run, err := s.Runs.Start(spec, workers)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -168,7 +205,15 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		names[i] = e.Name
 	}
 	log.Printf("run %s started on %d of %d live workers", run.ID, len(workers), len(live))
-	writeJSON(w, http.StatusAccepted, map[string]any{"runId": run.ID, "workers": names, "available": len(live)})
+	resp := map[string]any{"runId": run.ID, "workers": names, "available": len(live)}
+	if totalRate > 0 {
+		resp["totalRate"] = totalRate
+		resp["warnings"] = warnings
+	}
+	if !startAt.IsZero() {
+		resp["startAt"] = startAt.UTC().Format(time.RFC3339Nano)
+	}
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func readSpec(r *http.Request) (scenarioSpec, int, error) {

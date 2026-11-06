@@ -66,7 +66,7 @@ All requests need `Authorization: Bearer $CONTROLLER_TOKEN` when it is set.
 | `POST` | `/workers` | Register or refresh a worker: `{name, url, token, labels}`. `204` |
 | `DELETE` | `/workers/{name}` | Remove a worker. `204` |
 | `GET` | `/workers[?label=k=v]` | Live workers (repeat `label` to require several) |
-| `POST` | `/runs[?label=k=v][&workers=N\|P%]` | Start a run on the matching live workers, or on a random `N` or `P%` of them (see below). Multipart (`file`, plus optional `files`) or JSON `{"scenarioUrl": "..."}`. `202` with `{"runId", "workers", "available"}`; `409` if none match or fewer are live than asked for; `400` for a bad `workers` value |
+| `POST` | `/runs[?label=k=v][&workers=N\|P%][&total_rate=R][&start_delay=D]` | Start a run on the matching live workers, or on a random `N` or `P%` of them (see below). Multipart (`file`, plus optional `files`) or JSON `{"scenarioUrl": "..."}`. `total_rate` splits one fleet-wide rate across the workers, and `start_delay` makes them all start together (see below). `202` with `{"runId", "workers", "available"}`, plus `totalRate` and `warnings` with `total_rate` and `startAt` with `start_delay`; `409` if none match or fewer are live than asked for; `400` for a bad `workers`, `total_rate` or `start_delay` |
 | `GET` | `/runs/{id}` | Run status with one row per worker |
 | `DELETE` | `/runs/{id}` | Abort a run: each worker still running is told to cancel its task. `202` with `{"runId", "aborted": [workers]}`; `200` with none if the run had already finished. The run ends as `canceled` |
 | `GET` | `/runs/{id}/{worker}/{file}` | A worker's `report.html`, `report.json`, `results.jsonl` or `log`, proxied |
@@ -98,7 +98,53 @@ labels, so the labels are applied first:
   workers in `workers` and how many were eligible in `available`.
 - **Load is per worker.** A scenario at `rate: 100` generates 400 requests per second
   on 4 workers, and the same 400 on 25% of 16. Choosing a count or percentage changes
-  the aggregate load; the scenario's rate is not divided among the chosen workers.
+  the aggregate load; the scenario's rate is not divided among the chosen workers
+  (unless you also pass `total_rate`, below).
+
+### One rate for the whole fleet
+
+By default every worker runs the scenario as written, so `rate: 100` on 4 workers is
+400 req/s. `?total_rate=R` makes **R the fleet's peak rate** instead: the controller
+rewrites the scenario's `load:` block, one copy per worker, and the copies add up to R.
+
+- Every rate and user count in the load is scaled by `R / peak`, where the peak is
+  `load.rate` or the highest stage `rate`, so a staged ramp keeps its shape and only
+  changes height. Then each is divided across the workers.
+- Rates divide exactly. User counts (`workers`, `max_workers`) are whole numbers: the
+  remainder goes to the first workers, and a count smaller than the number of workers
+  gives each worker 1 (the fleet then runs a little more than asked, and the response
+  `warnings` say so).
+- `requests` is a fleet-wide cap, so it is divided, not scaled. `iterations` is per
+  virtual user and is left alone. Durations never change.
+- A rate of `0` stays `0` (in a stage, that is a ramp to zero).
+- Only the `load:` block is edited. Comments elsewhere survive, but the rewritten file
+  is re-serialized, so blank lines go and flow-style braces are re-spaced.
+- It needs an uploaded scenario (`400` with `scenarioUrl`: the workers fetch that file
+  themselves) and a load with a rate (`400` otherwise).
+- Each worker's recorded `sha256` is of its own slice, not of the file you sent.
+
+`resonate` itself runs a few percent over the nominal rate, mostly in its first
+second, so expect the measured fleet rate to land slightly above R.
+
+### Starting together
+
+`?start_delay=D` (like `5s`; at most `10m`) has the controller pick one start time,
+now plus `D`, and pass it to every worker (`POST /task?startAt=...`). Each worker
+holds the task `queued` until then and starts `resonate` at that moment, so staged
+ramps line up. With a single worker it is ignored. Without it, each worker starts as
+soon as it has the scenario.
+
+It uses the workers' own clocks, so they need to agree (NTP). Each worker echoes its
+clock when it accepts the task, and a worker's `warning` in the run status is set
+when it:
+
+- **predates `startAt`** (an older worker) and started at once;
+- **received the scenario after the start time** (a large upload, or a delay shorter
+  than the delivery), so it started late: raise `D`;
+- **has a clock more than 500ms** from the controller's, so its start is off by about
+  that much.
+
+Warnings don't fail the run. A queued task can be canceled while it waits.
 
 A run's status is `running` until every worker finishes, then `done` if all did
 and `failed` if any worker failed or could not be reached (its row shows

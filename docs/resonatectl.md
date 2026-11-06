@@ -148,6 +148,32 @@ reports in resonatectl-run-1762333200
 Each worker's `report.html`, `report.json`, `results.jsonl` and `log` land in
 `resonatectl-run-<timestamp>/<worker-name>/`.
 
+### Load across the fleet
+
+```sh
+resonatectl run --total-rate 500 scenario.yaml     # 500 req/s in all, however many workers
+```
+
+Without `--total-rate` each worker runs the scenario as written, so the fleet's load
+is the scenario's rate times the number of workers. With it, the rate and user counts
+are scaled to the total and split evenly, stages included. For example, 3 workers
+and `--total-rate 90` against `rate: 20, workers: 5`:
+
+```
+run 2428b0fe7172390c started on 3 of 3 worker(s): w0, w1, w2
+all workers start at 06:21:16.285 (in 4s)
+WORKER  STATUS  REQUESTS  SUCCESS  P95       DURATION
+w0      done    269       100.0%   8.52ms    7.97s
+w1      done    269       100.0%   8.12ms    7.97s
+w2      done    269       100.0%   7.36ms    7.97s
+```
+
+The workers wait for a shared start time (`--start-delay`, default 5s) so their
+ramps line up; in that run their first requests landed within 2ms of each other. If
+a worker started late, ignored the start time or has a drifting clock, a `warning:`
+line says so after the table. An older controller that doesn't know `--total-rate` is
+detected and the run is aborted, rather than hit your service at the unsplit rate.
+
 ### Fleet total
 
 The total is also written to `resonatectl-run-<timestamp>/aggregate.json`. Request
@@ -198,6 +224,8 @@ from another terminal. A worker's task ends as `canceled`, and so does the run. 
 | `--label k=v` | *(all workers)* | Only workers with this label (repeatable) |
 | `--workers N` or `P%` | *(all of them)* | Run on a random `N`, or `P%` (rounded up, at least 1), of the workers left after `--label`. More than are live is an error. See [Running on some of the workers](controller.md#running-on-some-of-the-workers) |
 | `--data file` | | A feeder/body file to upload with the scenario (repeatable; not with a scenario URL) |
+| `--total-rate R` | | Make `R` req/s the **fleet's** peak rate instead of each worker's: scale the scenario's load to it and split it across the workers. A scenario file only. See [One rate for the whole fleet](controller.md#one-rate-for-the-whole-fleet) |
+| `--start-delay D` | `5s` | Have every worker wait `D` and start together; `0` starts each as it gets the scenario. Ignored with one worker. See [Starting together](controller.md#starting-together) |
 | `--threshold expr` | | Fail unless the fleet total meets it, like `p95<300ms` (repeatable). See [Thresholds](#thresholds) |
 | `--out dir` | `./resonatectl-run-<unix-timestamp>` | Where the reports go |
 | `--poll` | `2s` | How often to check progress |

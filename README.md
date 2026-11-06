@@ -20,6 +20,7 @@ controller when you have more than one.
 
 **resonate-worker**
 - Submit a scenario by multipart upload or by `scenarioUrl` (allowlisted), with feeder and other data files alongside it
+- Optional `startAt` holds a task until a given time, for a synchronized start
 - Poll task status; fetch the report and logs; cancel a running task with `DELETE /task/{id}`
 - Refuses absolute paths and `..` in scenario file references
 - Optional upload of task files and results to S3
@@ -32,12 +33,14 @@ controller when you have more than one.
 - `GET /workers`, filterable by label (`?label=k=v`)
 - `POST /runs` fans a scenario out to the matching workers, polls them, and proxies each report and log
 - `DELETE /runs/{id}` aborts a run on all its workers
+- `total_rate` splits one fleet-wide rate across the workers; `start_delay` gives them a shared start time
 - Targeting: label filter first, then a random subset with `workers=N` or `workers=P%`
 - Bearer-token auth
 
 **resonatectl**
 - `run` a scenario with data files and see a per-worker results table; `workers` lists the fleet
 - `--label`, `--workers N|P%`, `--out`, `--poll`
+- `--total-rate R` makes R the whole fleet's rate (scaled and split across workers, stages included); `--start-delay` starts every worker together
 - Fleet total with exact percentiles across all workers, written to `aggregate.json`
 - `--threshold p95<300ms` etc. fail the run (exit 3) so it can gate CI
 - Ctrl-C or `resonatectl abort <run-id>` stops the run on every worker

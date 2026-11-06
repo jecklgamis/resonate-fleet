@@ -38,6 +38,7 @@ type Task struct {
 	Source    string // URL the scenario was fetched from, if it was submitted by URL
 	SHA256    string // hash of the scenario bytes that were saved and run
 	CreatedAt time.Time
+	StartAt   time.Time // when resonate is to start, if the submitter asked for a synchronized start
 
 	mu         sync.Mutex
 	Status     Status
@@ -52,16 +53,20 @@ type Task struct {
 	canceled bool               // Cancel was called, so a non-zero exit is "canceled", not "failed"
 }
 
-// Cancel asks a running task to stop. It reports false when the task is not
-// running (already finished, or never started), so a repeat call is harmless.
+// Cancel asks a queued or running task to stop. It reports false when the task has
+// already finished, so a repeat call is harmless.
 func (t *Task) Cancel() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.Status != StatusRunning || t.cancel == nil {
+	if t.Status != StatusRunning && t.Status != StatusQueued {
 		return false
 	}
+	// A task still waiting for its start time (or just submitted, before Run has
+	// set cancel) is stopped by the canceled flag, which Run checks before starting.
 	t.canceled = true
-	t.cancel()
+	if t.cancel != nil {
+		t.cancel()
+	}
 	return true
 }
 
@@ -144,15 +149,16 @@ func (t *Task) saveLocked() {
 // snapshot is Task's data under lock, safe to hand to a JSON encoder without
 // racing a concurrent finish().
 type snapshot struct {
-	ID         string    `json:"id"`
-	Scenario   string    `json:"scenario"`
-	Source     string    `json:"source,omitempty"`
-	SHA256     string    `json:"sha256,omitempty"`
-	Status     Status    `json:"status"`
-	ExitCode   int       `json:"exit_code,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	FinishedAt time.Time `json:"finished_at,omitempty"`
+	ID         string     `json:"id"`
+	Scenario   string     `json:"scenario"`
+	Source     string     `json:"source,omitempty"`
+	SHA256     string     `json:"sha256,omitempty"`
+	Status     Status     `json:"status"`
+	ExitCode   int        `json:"exit_code,omitempty"`
+	Error      string     `json:"error,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	StartAt    *time.Time `json:"start_at,omitempty"`
+	FinishedAt time.Time  `json:"finished_at,omitempty"`
 
 	ArtifactsURL string `json:"artifacts_url,omitempty"`
 	UploadError  string `json:"upload_error,omitempty"`
@@ -168,6 +174,10 @@ func (t *Task) snapshotLocked() snapshot {
 	s := snapshot{ID: t.ID, Scenario: t.Scenario, Source: t.Source, SHA256: t.SHA256, Status: t.Status, ExitCode: t.ExitCode, Error: t.Err, CreatedAt: t.CreatedAt, ArtifactsURL: t.ArtifactsURL, UploadError: t.UploadError}
 	if !t.FinishedAt.IsZero() {
 		s.FinishedAt = t.FinishedAt
+	}
+	if !t.StartAt.IsZero() {
+		st := t.StartAt
+		s.StartAt = &st
 	}
 	return s
 }
@@ -224,6 +234,9 @@ func LoadStore(workspace string) (*Store, error) {
 
 			ArtifactsURL: rec.ArtifactsURL,
 			UploadError:  rec.UploadError,
+		}
+		if rec.StartAt != nil {
+			t.StartAt = *rec.StartAt
 		}
 		if t.Status == StatusQueued || t.Status == StatusRunning {
 			t.Status = StatusFailed
@@ -286,7 +299,27 @@ func (r *Runner) Run(t *Task) {
 	defer cancel()
 	t.mu.Lock()
 	t.cancel = cancel
+	pre := t.canceled // canceled between submit and here
 	t.mu.Unlock()
+
+	// A synchronized start: sit queued until the requested time, so every worker of
+	// a run starts together. A time already past starts at once.
+	if !pre && !t.StartAt.IsZero() {
+		if d := time.Until(t.StartAt); d > 0 {
+			log.Printf("task %s: waiting %s to start at %s", t.ID, d.Round(time.Millisecond), t.StartAt.Format(time.RFC3339Nano))
+			timer := time.NewTimer(d)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+			}
+		}
+	}
+	if ctx.Err() != nil || pre {
+		t.finish(1, nil) // canceled before it started: finishLocked records "canceled"
+		log.Printf("task %s: canceled before it started", t.ID)
+		return
+	}
 
 	t.setRunning()
 	log.Printf("task %s: running %s run scenario.yaml", t.ID, r.ResonateBin)

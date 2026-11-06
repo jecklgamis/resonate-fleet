@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -47,6 +48,7 @@ type controllerRun struct {
 		Status   string `json:"status"`
 		ExitCode int    `json:"exit_code"`
 		Error    string `json:"error"`
+		Warning  string `json:"warning"`
 	} `json:"workers"`
 }
 
@@ -73,6 +75,11 @@ type startOptions struct {
 	DataFiles []string // feeder/body files uploaded alongside the scenario
 	Labels    []string // only workers with all of these key=value labels
 	Workers   string   // "" for all of them, else a count ("4") or percentage ("25%") of those
+	TotalRate float64  // 0 to run the scenario as written on every worker, else the fleet's peak req/s to split across them
+
+	// StartDelay is how long from now the controller has every worker wait before
+	// it starts, so they begin together. 0 starts each as soon as it has the scenario.
+	StartDelay time.Duration
 }
 
 // startedRun is what the controller says it started.
@@ -85,6 +92,20 @@ type startedRun struct {
 	// controller did not confirm it (an older controller ignores the parameter),
 	// so the run started on every matching worker.
 	SelectionIgnored bool
+
+	// Warnings are the controller's notes on how it split the load.
+	Warnings []string
+
+	// TotalRateIgnored is true when a total rate was asked for but the controller
+	// did not confirm it (an older controller ignores the parameter), so every
+	// worker is running the scenario unsplit.
+	TotalRateIgnored bool
+
+	// StartAt is when the workers were told to start (zero if not synchronized), and
+	// StartIgnored is true when a start delay was asked for, several workers were
+	// chosen, and the controller did not confirm it (an older controller).
+	StartAt      time.Time
+	StartIgnored bool
 }
 
 // Start submits the scenario (a local file with optional data files, or a URL
@@ -98,6 +119,9 @@ func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, opts 
 	if isScenarioURL(scenarioPath) {
 		if len(dataFiles) > 0 {
 			return startedRun{}, fmt.Errorf("--data can't be combined with a scenario URL")
+		}
+		if opts.TotalRate > 0 {
+			return startedRun{}, fmt.Errorf("--total-rate needs a scenario file: the controller can't rewrite a scenario the workers fetch themselves")
 		}
 		b, _ := json.Marshal(map[string]string{"scenarioUrl": scenarioPath})
 		body, ct = bytes.NewReader(b), "application/json"
@@ -122,6 +146,12 @@ func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, opts 
 	if opts.Workers != "" {
 		q.Set("workers", opts.Workers)
 	}
+	if opts.TotalRate > 0 {
+		q.Set("total_rate", strconv.FormatFloat(opts.TotalRate, 'f', -1, 64))
+	}
+	if opts.StartDelay > 0 {
+		q.Set("start_delay", opts.StartDelay.String())
+	}
 	path := "/runs"
 	if len(q) > 0 {
 		path += "?" + q.Encode()
@@ -139,6 +169,9 @@ func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, opts 
 		RunID     string   `json:"runId"`
 		Workers   []string `json:"workers"`
 		Available *int     `json:"available"` // absent from controllers that predate --workers
+		TotalRate *float64 `json:"totalRate"` // absent from controllers that predate --total-rate
+		Warnings  []string `json:"warnings"`
+		StartAt   string   `json:"startAt"` // absent when not synchronized
 	}
 	if err := json.Unmarshal(b, &out); err != nil || out.RunID == "" {
 		return startedRun{}, fmt.Errorf("controller returned no runId")
@@ -148,6 +181,15 @@ func (c *ControllerClient) Start(ctx context.Context, scenarioPath string, opts 
 		run.Available = *out.Available
 	} else if opts.Workers != "" {
 		run.SelectionIgnored = true
+	}
+	run.Warnings = out.Warnings
+	if t, err := time.Parse(time.RFC3339Nano, out.StartAt); err == nil {
+		run.StartAt = t
+	} else if opts.StartDelay > 0 && len(out.Workers) > 1 {
+		run.StartIgnored = true
+	}
+	if opts.TotalRate > 0 && out.TotalRate == nil {
+		run.TotalRateIgnored = true
 	}
 	return run, nil
 }
@@ -245,10 +287,25 @@ func runViaController(ctx context.Context, c *ControllerClient, scenarioPath str
 		return nil, err
 	}
 	id := started.ID
+	if started.TotalRateIgnored {
+		// Every worker is running the full, unsplit load: stop it rather than hit
+		// the target at a rate nobody asked for.
+		c.Abort(ctx, id)
+		return nil, fmt.Errorf("this controller does not support --total-rate, so run %s was aborted; upgrade the controller", id)
+	}
+	for _, w := range started.Warnings {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
 	if started.SelectionIgnored {
 		fmt.Fprintf(os.Stderr, "warning: this controller does not support --workers, so the run started on all %d matching workers; upgrade the controller\n", len(started.Workers))
 	}
+	if started.StartIgnored {
+		fmt.Fprintln(os.Stderr, "warning: this controller does not support --start-delay, so the workers start as each receives the scenario, not together; upgrade the controller")
+	}
 	fmt.Printf("run %s started on %d of %d worker(s): %s\n", id, len(started.Workers), started.Available, strings.Join(started.Workers, ", "))
+	if !started.StartAt.IsZero() {
+		fmt.Printf("all workers start at %s (in %s)\n", started.StartAt.Local().Format("15:04:05.000"), time.Until(started.StartAt).Round(100*time.Millisecond))
+	}
 	run, err := c.Wait(ctx, id, poll)
 	if err != nil && ctx.Err() != nil {
 		// Interrupted (Ctrl-C): stop the workers rather than leave the load running,
@@ -267,7 +324,7 @@ func runViaController(ctx context.Context, c *ControllerClient, scenarioPath str
 	}
 	var results []workerResult
 	for _, w := range run.Workers {
-		res := workerResult{Name: w.Name, TaskID: w.TaskID, Status: w.Status, ExitCode: w.ExitCode, Err: w.Error}
+		res := workerResult{Name: w.Name, TaskID: w.TaskID, Status: w.Status, ExitCode: w.ExitCode, Err: w.Error, Warning: w.Warning}
 		if w.TaskID != "" {
 			for _, name := range []string{"report.html", "report.json", "results.jsonl", "log"} {
 				dest := filepath.Join(outDir, w.Name, name)

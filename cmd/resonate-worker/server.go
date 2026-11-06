@@ -61,6 +61,11 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 // before the response, so a bad or unreachable URL is a 4xx/5xx here rather than
 // a mysteriously failed task later.
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
+	startAt, err := parseStartAt(r.URL.Query().Get("startAt"), time.Now())
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
 	var (
 		body   io.Reader
 		name   string
@@ -160,6 +165,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		Source:    source,
 		SHA256:    sum,
 		CreatedAt: time.Now(),
+		StartAt:   startAt,
 		Status:    StatusQueued,
 	}
 	s.Store.Add(t)
@@ -172,7 +178,34 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	go s.Runner.Run(t)
 
-	writeJSON(w, http.StatusAccepted, map[string]string{"taskId": id})
+	resp := map[string]string{"taskId": id}
+	if !startAt.IsZero() {
+		// Echo the start time and this worker's own clock, so the caller can tell
+		// whether the time was honored and how far this clock is from its own.
+		resp["startAt"] = startAt.UTC().Format(time.RFC3339Nano)
+		resp["now"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	writeJSON(w, http.StatusAccepted, resp)
+}
+
+// maxStartDelay caps how far ahead a start time may be, so a typo can't park a
+// task for days.
+const maxStartDelay = 10 * time.Minute
+
+// parseStartAt reads the optional ?startAt=<RFC 3339 time> of a submission. Empty
+// means start now (the zero time). A time in the past is fine and starts at once.
+func parseStartAt(v string, now time.Time) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, v)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid startAt %q: want an RFC 3339 time like 2026-11-07T10:00:00Z", v)
+	}
+	if t.Sub(now) > maxStartDelay {
+		return time.Time{}, fmt.Errorf("startAt %s is more than %s away", v, maxStartDelay)
+	}
+	return t, nil
 }
 
 // badRequest marks an error caused by the submission itself.

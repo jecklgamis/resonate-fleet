@@ -5,7 +5,7 @@ worker was started with an `API_TOKEN`. Errors are JSON: `{"error": "<message>"}
 
 | Method | Path | Returns |
 | --- | --- | --- |
-| `POST` | `/task` | Start a task. Either a multipart upload (field `file` = the scenario YAML, plus optional `files` fields for data files such as feeders) or JSON `{"scenarioUrl": "..."}`. `202 Accepted` with `{"taskId": "..."}` |
+| `POST` | `/task[?startAt=T]` | Start a task. Either a multipart upload (field `file` = the scenario YAML, plus optional `files` fields for data files such as feeders) or JSON `{"scenarioUrl": "..."}`. `202 Accepted` with `{"taskId": "..."}`. With `startAt` (an RFC 3339 time, at most 10 minutes ahead) the task waits `queued` until then; the response then also has `startAt` and `now` (the worker's clock). `400` for a bad `startAt` |
 | `GET` | `/task` | Every task this worker knows about |
 | `GET` | `/task/{id}` | That task's status |
 | `DELETE` | `/task/{id}` | Cancel a running task: resonate is interrupted (and killed after 10s), and the task ends as `canceled`. `202` if it was running, `200` with the final state if it was not, `404` if unknown |
@@ -25,6 +25,10 @@ curl -H "Authorization: Bearer $TOKEN" -F "file=@scenario.yaml" $WORKER/task
 ```json
 {"taskId":"c55286ad94a65b72"}
 ```
+
+`?startAt=2026-11-07T10:00:00Z` holds the task until that time, so several workers can
+start together (the controller's `start_delay` uses it). A time already past starts at
+once. A task can be canceled with `DELETE /task/{id}` while it waits.
 
 To have the worker fetch the scenario instead of uploading it, send JSON:
 
@@ -73,6 +77,7 @@ complaint in the [log](#get-taskidlog).
 | Field | Meaning |
 | --- | --- |
 | `id` | The task id (16 hex characters) |
+| `start_at` | When the task was asked to start, if it was submitted with `startAt` |
 | `scenario` | The uploaded file's original name (or the URL's last path segment), for display only |
 | `source` | The URL the scenario was fetched from. Omitted for uploads |
 | `sha256` | Hash of the exact scenario bytes the worker saved and ran |

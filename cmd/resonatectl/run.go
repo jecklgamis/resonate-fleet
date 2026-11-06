@@ -28,6 +28,7 @@ type workerResult struct {
 	Status   string // "done", "failed", or "error" (the controller couldn't submit to or poll the worker)
 	ExitCode int
 	Err      string // resonate's own error (status "failed"), or the controller's (status "error")
+	Warning  string // a note that doesn't fail the worker, e.g. it started late
 	Report   *reportSummary
 }
 
