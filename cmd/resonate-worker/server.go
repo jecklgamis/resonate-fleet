@@ -35,6 +35,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /task", s.handleSubmit)
 	mux.HandleFunc("GET /task", s.handleList)
 	mux.HandleFunc("GET /task/{id}", s.handleStatus)
+	mux.HandleFunc("DELETE /task/{id}", s.handleCancel)
 	mux.HandleFunc("GET /task/{id}/report.html", s.handleFile("report.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /task/{id}/report.json", s.handleFile("report.json", "application/json"))
 	mux.HandleFunc("GET /task/{id}/results.jsonl", s.handleFile("results.jsonl", "application/x-ndjson"))
@@ -266,6 +267,22 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.Store.Get(r.PathValue("id"))
 	if !ok {
 		httpError(w, http.StatusNotFound, fmt.Errorf("no such task"))
+		return
+	}
+	writeJSON(w, http.StatusOK, t.snapshot())
+}
+
+// handleCancel stops a running task. Canceling a task that already finished is
+// not an error: it answers 200 with the task's final state.
+func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.Store.Get(r.PathValue("id"))
+	if !ok {
+		httpError(w, http.StatusNotFound, fmt.Errorf("no such task"))
+		return
+	}
+	if t.Cancel() {
+		log.Printf("task %s: cancel requested", t.ID)
+		writeJSON(w, http.StatusAccepted, t.snapshot())
 		return
 	}
 	writeJSON(w, http.StatusOK, t.snapshot())

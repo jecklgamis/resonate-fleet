@@ -29,7 +29,7 @@ file to `resonate run` unchanged.
 | Bearer-token auth | One `API_TOKEN` gates every endpoint except `/healthz`. See [Configuration](configuration.md) |
 | Survives restarts | Each task's state is saved to its workspace, so the task list and reports are still there after a restart. See [Operations](operations.md) |
 | Request and task logging | One log line per request plus task lifecycle events; bearer tokens are never logged |
-| Controller and CLI | Workers register with a controller; `resonatectl` runs one scenario on all of them (or a labelled subset) and collects each report without merging them. See [Controller](controller.md) and [resonatectl](resonatectl.md) |
+| Controller and CLI | Workers register with a controller; `resonatectl` runs one scenario on all of them (or a labelled subset) and collects each report, plus a merged fleet total with pass/fail thresholds. See [Controller](controller.md) and [resonatectl](resonatectl.md) |
 | Docker and Helm | A public image that bundles a pinned `resonate`, and a Helm chart. See [Deployment](deployment.md) |
 
 ## Quick Start
@@ -106,7 +106,7 @@ See [Controller](controller.md) and [resonatectl](resonatectl.md).
   controller to register with.
 - **The controller** keeps a registry of live workers and fans a scenario out to
   them. It does not schedule, queue or retry, and it keeps its state in memory
-  only. It never combines reports.
+  only. `resonatectl` merges the reports client-side.
 - **`resonatectl`** is a client for the controller, nothing more.
 
 See [Architecture](architecture.md#what-this-isnt) for details.

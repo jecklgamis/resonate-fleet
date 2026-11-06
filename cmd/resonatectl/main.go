@@ -1,8 +1,8 @@
 // Command resonatectl runs one scenario on every resonate-worker registered
 // with a resonate-controller, and pulls back each worker's report. It talks to
 // the controller only: the controller fans the run out, so this tool needs a
-// route to the controller and nothing else. Reports are never combined - each
-// worker reports on its own slice of traffic.
+// route to the controller and nothing else. Each worker's report is kept as is,
+// and a fleet total is computed over all of them (see aggregate.go).
 package main
 
 import (
@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 
 const usage = `usage:
   resonatectl run [flags] <scenario.yaml|scenario-url>   run a scenario on the registered workers
+  resonatectl abort [flags] <run-id>                     stop a run on all its workers
   resonatectl workers [flags]                            list the registered workers
   resonatectl config view                                show the contexts in the config file
   resonatectl config use <context>                       switch the current context
@@ -33,6 +35,13 @@ flags (run, workers):
   --config FILE      config file (default ~/.config/resonatectl/config.yaml, or $RESONATECTL_CONFIG)
   --label k=v        only workers with this label (repeatable)
   --workers N|P%     (run) a random N, or P%, of those workers; default all
+  --threshold EXPR   (run) fail unless the fleet total meets it, e.g. p95<300ms,
+                     success_rate>=99%, error_rate<1%, rps>=100 (repeatable)
+
+run prints each worker's row, then a fleet total computed over every worker's
+requests, and writes it to <out>/aggregate.json. Ctrl-C aborts the run on the
+workers and still reports what they finished. Exit status: 0 success, 1 a worker
+failed or errored, 3 only a --threshold failed, 2 usage error.
 settings, highest first: flags, then $RESONATE_CONTROLLER and $CONTROLLER_TOKEN,
 then the config file's current context.`
 
@@ -54,6 +63,8 @@ func main() {
 	switch args[0] {
 	case "run":
 		os.Exit(runCmd(args[1:]))
+	case "abort":
+		os.Exit(abortCmd(args[1:]))
 	case "workers":
 		os.Exit(workersCmd(args[1:]))
 	case "config":
@@ -110,7 +121,8 @@ func (cf clientFlags) client() (*ControllerClient, error) {
 func runCmd(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	cf := commonFlags(fs)
-	var dataFiles multiFlag
+	var dataFiles, thresholdExprs multiFlag
+	fs.Var(&thresholdExprs, "threshold", "Fail unless the fleet total meets this, like p95<300ms or success_rate>=99% (repeatable)")
 	fs.Var(&dataFiles, "data", "A feeder/body file to upload with the scenario (repeatable; not with a scenario URL)")
 	workers := fs.String("workers", "", "Run on a random subset of the matching workers: a count (4) or a percentage (25%); default all")
 	outDir := fs.String("out", "", "Directory for each worker's reports, one subdirectory per worker (default ./resonatectl-run-<timestamp>)")
@@ -123,6 +135,11 @@ func runCmd(args []string) int {
 	fs.Parse(flagArgs)
 	if scenario == "" || fs.NArg() != 0 {
 		fs.Usage()
+		return 2
+	}
+	thresholds, err := parseThresholds(thresholdExprs)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
 		return 2
 	}
 	c, err := cf.client()
@@ -148,10 +165,52 @@ func runCmd(args []string) int {
 		return 1
 	}
 	printTable(os.Stdout, results)
-	fmt.Printf("reports in %s\n", *outDir)
-	if anyFailed(results) {
+	agg := buildAggregate(*outDir, results)
+	if agg != nil {
+		printAggregate(os.Stdout, agg)
+		if err := writeAggregate(filepath.Join(*outDir, "aggregate.json"), agg); err != nil {
+			fmt.Fprintln(os.Stderr, "warning: writing aggregate.json:", err)
+		}
+	}
+	checks := evalThresholds(thresholds, agg)
+	printThresholds(os.Stdout, checks)
+	fmt.Printf("\nreports in %s\n", *outDir)
+	switch {
+	case anyFailed(results):
+		return 1
+	case thresholdsFailed(checks):
+		return 3
+	}
+	return 0
+}
+
+func abortCmd(args []string) int {
+	fs := flag.NewFlagSet("abort", flag.ExitOnError)
+	cf := commonFlags(fs)
+	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage); fs.PrintDefaults() }
+	id, flagArgs := extractPositional(args)
+	fs.Parse(flagArgs)
+	if id == "" || fs.NArg() != 0 {
+		fs.Usage()
+		return 2
+	}
+	c, err := cf.client()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	names, err := c.Abort(ctx, id)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
+	if len(names) == 0 {
+		fmt.Printf("run %s has nothing left to stop\n", id)
+		return 0
+	}
+	fmt.Printf("run %s: asked %d worker(s) to stop: %s\n", id, len(names), strings.Join(names, ", "))
 	return 0
 }
 

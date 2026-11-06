@@ -68,6 +68,7 @@ All requests need `Authorization: Bearer $CONTROLLER_TOKEN` when it is set.
 | `GET` | `/workers[?label=k=v]` | Live workers (repeat `label` to require several) |
 | `POST` | `/runs[?label=k=v][&workers=N\|P%]` | Start a run on the matching live workers, or on a random `N` or `P%` of them (see below). Multipart (`file`, plus optional `files`) or JSON `{"scenarioUrl": "..."}`. `202` with `{"runId", "workers", "available"}`; `409` if none match or fewer are live than asked for; `400` for a bad `workers` value |
 | `GET` | `/runs/{id}` | Run status with one row per worker |
+| `DELETE` | `/runs/{id}` | Abort a run: each worker still running is told to cancel its task. `202` with `{"runId", "aborted": [workers]}`; `200` with none if the run had already finished. The run ends as `canceled` |
 | `GET` | `/runs/{id}/{worker}/{file}` | A worker's `report.html`, `report.json`, `results.jsonl` or `log`, proxied |
 
 ```sh

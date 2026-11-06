@@ -1,19 +1,43 @@
 protocol: http
 
+# Ramp up, hold, ramp down. Each worker runs the whole schedule, so with N workers
+# the fleet sends about N times this rate. For a constant load, replace stages with:
+#   duration: 10s
+#   rate: 20
+#   workers: 5
 load:
-  duration: 10s
-  rate: 20
-  workers: 5
+  stages:
+    - { duration: 10s, rate: 20, workers: 5 }
+    - { duration: 30s, rate: 100, workers: 20 }
+    - { duration: 10s, rate: 0, workers: 0 }
 
 http:
   timeout: 5s
   targets:
-    - method: GET
+    - name: sink
+      method: GET
       url: http://localhost:8080/health   # point this at the service you want to load
+      query: { user: "{{ .Feeder.user }}" }   # a value from the feeder rows below
+      headers:
+        Accept: application/json
+      expect_status: [200]
+  feeder:
+    mode: random
+    rows:
+      - { user: alice }
+      - { user: bob }
+      - { user: carol }
 
-# A run whose assertions fail ends as status "failed" on the worker.
+# Checked by resonate on each worker; a failure ends that worker's task as "failed".
+# To also gate the combined fleet total, pass thresholds to resonatectl:
+#   resonatectl run examples/scenario.yaml \
+#     --threshold 'p95<300ms' --threshold 'success_rate>=99%' --threshold 'rps>=50'
 assertions:
   - metric: success_rate
     min: "0.99"
   - metric: latency_p95
     max: 500ms
+  - metric: latency_p99
+    max: 1s
+    abort: true          # stop early if p99 is blown...
+    abort_after: 10s     # ...once the run has warmed up

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -50,17 +51,20 @@ type Run struct {
 
 	mu      sync.Mutex
 	workers []*WorkerRun
+	aborted bool // Abort was called; a worker still submitting is canceled once it has a task
 }
 
 type runSnapshot struct {
 	ID        string       `json:"id"`
 	Scenario  string       `json:"scenario"`
-	Status    string       `json:"status"` // running, done, or failed
+	Status    string       `json:"status"` // running, done, failed, or canceled
 	CreatedAt time.Time    `json:"created_at"`
 	Workers   []*WorkerRun `json:"workers"`
 }
 
-func finished(status string) bool { return status == "done" || status == "failed" || status == "error" }
+func finished(status string) bool {
+	return status == "done" || status == "failed" || status == "error" || status == "canceled"
+}
 
 func (r *Run) snapshot() runSnapshot {
 	r.mu.Lock()
@@ -76,6 +80,9 @@ func (r *Run) snapshot() runSnapshot {
 			s.Status = "failed"
 		}
 	}
+	if s.Status != "running" && r.aborted {
+		s.Status = "canceled"
+	}
 	return s
 }
 
@@ -83,6 +90,12 @@ func (r *Run) update(w *WorkerRun, f func(*WorkerRun)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	f(w)
+}
+
+func (r *Run) isAborted() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.aborted
 }
 
 func (r *Run) find(name string) (WorkerRun, bool) {
@@ -148,6 +161,9 @@ func (rs *Runs) runOne(run *Run, w *WorkerRun, spec scenarioSpec) {
 		return
 	}
 	run.update(w, func(w *WorkerRun) { w.TaskID, w.Status = id, "queued" })
+	if run.isAborted() {
+		rs.cancelWorker(w, id) // the abort came while this worker was still submitting
+	}
 
 	for {
 		st, err := rs.status(ctx, w, id)
@@ -165,6 +181,55 @@ func (rs *Runs) runOne(run *Run, w *WorkerRun, spec scenarioSpec) {
 			return
 		case <-time.After(rs.PollInterval):
 		}
+	}
+}
+
+// Abort stops a run: every worker with a task is told to cancel it, and a worker
+// still submitting is canceled as soon as its task exists. It returns the names of
+// the workers that were asked to stop, and does nothing to a run that has finished.
+func (rs *Runs) Abort(run *Run) []string {
+	run.mu.Lock()
+	if run.aborted {
+		run.mu.Unlock()
+		return nil
+	}
+	var todo []WorkerRun
+	for _, w := range run.workers {
+		if !finished(w.Status) {
+			todo = append(todo, *w)
+		}
+	}
+	if len(todo) == 0 {
+		run.mu.Unlock()
+		return nil
+	}
+	run.aborted = true
+	run.mu.Unlock()
+
+	var names []string
+	for i := range todo {
+		names = append(names, todo[i].Name)
+		if todo[i].TaskID != "" {
+			rs.cancelWorker(&todo[i], todo[i].TaskID)
+		}
+	}
+	return names
+}
+
+// cancelWorker tells one worker to stop a task. The worker's own status (polled
+// by runOne) is what records the outcome, so a failure here is only logged.
+func (rs *Runs) cancelWorker(w *WorkerRun, taskID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := rs.do(ctx, w, http.MethodDelete, "/task/"+taskID, "", nil)
+	if err != nil {
+		log.Printf("abort: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode >= 300 {
+		log.Printf("abort: %s: cancel task %s: %s", w.Name, taskID, resp.Status)
 	}
 }
 

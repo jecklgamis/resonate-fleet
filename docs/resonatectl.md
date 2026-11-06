@@ -5,10 +5,9 @@ one scenario on every worker registered with the controller (or a labelled subse
 and pulls back each worker's report. It talks to the controller only: you need a
 route to the controller, not to the workers.
 
-**It never combines the reports.** Each worker runs the scenario on its own and
-reports on its own slice of traffic. If you need one number across workers, combine
-each `report.json` yourself (sum the request counts; do **not** average
-percentiles).
+Each worker runs the scenario on its own and reports on its own slice of traffic.
+`run` also prints a **fleet total** over all of them and can fail the run on
+[thresholds](#thresholds). Each worker's own report is left untouched.
 
 ## Build
 
@@ -136,11 +135,60 @@ run 0cc792e71eaed4b6 started on 2 worker(s): resonate-worker-…-n8m7x, resonate
 WORKER                            STATUS  REQUESTS  SUCCESS  P95        DURATION
 resonate-worker-66654b7d86-n8m7x  done    219       100.0%   5.12ms     9.95s
 resonate-worker-66654b7d86-pc8jd  done    219       100.0%   4.89ms     9.95s
+
+FLEET TOTAL  (2 worker(s))
+requests    438
+success     100.00%
+throughput  43.9 req/s over 9.97s
+latency     p50 3.98ms  p90 4.71ms  p95 5.01ms  p99 9.2ms  max 41.7ms
+
 reports in resonatectl-run-1762333200
 ```
 
 Each worker's `report.html`, `report.json`, `results.jsonl` and `log` land in
 `resonatectl-run-<timestamp>/<worker-name>/`.
+
+### Fleet total
+
+The total is also written to `resonatectl-run-<timestamp>/aggregate.json`. Request
+and success counts are the sums of each worker's `report.json`, the duration is the
+longest worker's, and throughput is total requests over that duration. Percentiles
+are **exact**: they are computed over every individual request in every worker's
+`results.jsonl`, not averaged from per-worker percentiles (which would be wrong). A
+worker with no report is left out, and a `note:` line says so. A run that was
+aborted, or a worker whose assertions failed, still contributes what it finished.
+
+### Thresholds
+
+```sh
+resonatectl run scenario.yaml \
+  --threshold 'p95<300ms' --threshold 'success_rate>=99%' --threshold 'rps>=100'
+```
+
+Each `--threshold` is `metric<value` (or `<=`, `>`, `>=`) checked against the fleet
+total:
+
+| Metric | Value |
+| --- | --- |
+| `min` `mean` `p50` `p75` `p90` `p95` `p99` `max` | a duration: `300ms`, `1.5s` |
+| `success_rate` `error_rate` | a fraction (`0.99`) or a percent (`99%`) |
+| `rps` `requests` | a number |
+
+```
+THRESHOLDS
+  PASS  p95<300ms  (got 5.01ms)
+  FAIL  success_rate>=99.00%  (got 98.50%)
+```
+
+With no usable report, every threshold fails rather than passing on no data. Quote
+the expression so your shell doesn't treat `<` and `>` as redirects.
+
+### Stopping a run
+
+Ctrl-C while `run` is waiting aborts the run on every worker (they stop generating
+load), then reports what they finished. `resonatectl abort <run-id>` does the same
+from another terminal. A worker's task ends as `canceled`, and so does the run. See
+[`DELETE /runs/{id}`](controller.md#api).
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -150,6 +198,7 @@ Each worker's `report.html`, `report.json`, `results.jsonl` and `log` land in
 | `--label k=v` | *(all workers)* | Only workers with this label (repeatable) |
 | `--workers N` or `P%` | *(all of them)* | Run on a random `N`, or `P%` (rounded up, at least 1), of the workers left after `--label`. More than are live is an error. See [Running on some of the workers](controller.md#running-on-some-of-the-workers) |
 | `--data file` | | A feeder/body file to upload with the scenario (repeatable; not with a scenario URL) |
+| `--threshold expr` | | Fail unless the fleet total meets it, like `p95<300ms` (repeatable). See [Thresholds](#thresholds) |
 | `--out dir` | `./resonatectl-run-<unix-timestamp>` | Where the reports go |
 | `--poll` | `2s` | How often to check progress |
 
@@ -164,6 +213,11 @@ row. See [Scenarios by URL](usage.md#scenarios-by-url).
 
 ### Exit code
 
-Non-zero if any worker's task didn't finish `done`, including one that was
-unreachable, so it works as a CI gate the same way `resonate run`'s exit code does.
-It also exits non-zero if the controller can't be reached or no live worker matches.
+| Code | Meaning |
+| --- | --- |
+| `0` | Every worker finished `done` and every `--threshold` held |
+| `1` | A worker didn't finish `done` (including unreachable or canceled), the controller couldn't be reached, or no live worker matches |
+| `2` | Bad usage or flags, including an invalid `--threshold` |
+| `3` | Every worker was `done`, but a `--threshold` failed |
+
+So it works as a CI gate the same way `resonate run`'s exit code does.

@@ -35,6 +35,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /workers/{name}", s.handleDeregister)
 	mux.HandleFunc("POST /runs", s.handleStartRun)
 	mux.HandleFunc("GET /runs/{id}", s.handleRun)
+	mux.HandleFunc("DELETE /runs/{id}", s.handleAbort)
 	mux.HandleFunc("GET /runs/{id}/{worker}/{file}", s.handleReport)
 }
 
@@ -219,6 +220,23 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, run.snapshot())
+}
+
+// handleAbort stops a run's workers. It answers 202 with the workers it asked to
+// stop, or 200 with none when the run had already finished (or was already aborted).
+func (s *Server) handleAbort(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.Runs.Get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, fmt.Errorf("no such run"))
+		return
+	}
+	names := s.Runs.Abort(run)
+	if len(names) == 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"runId": run.ID, "aborted": []string{}})
+		return
+	}
+	log.Printf("run %s aborted on %d worker(s)", run.ID, len(names))
+	writeJSON(w, http.StatusAccepted, map[string]any{"runId": run.ID, "aborted": names})
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {

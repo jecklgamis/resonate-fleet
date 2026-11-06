@@ -193,6 +193,27 @@ func (c *ControllerClient) Wait(ctx context.Context, id string, interval time.Du
 	}
 }
 
+// Abort asks the controller to stop a run's workers. It returns the workers that
+// were asked to stop, none when the run had already finished.
+func (c *ControllerClient) Abort(ctx context.Context, id string) ([]string, error) {
+	resp, err := c.do(ctx, http.MethodDelete, "/runs/"+id, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("aborting run: %s: %s", resp.Status, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		Aborted []string `json:"aborted"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("parsing abort response: %w", err)
+	}
+	return out.Aborted, nil
+}
+
 // fetch downloads one report file of one worker, through the controller.
 func (c *ControllerClient) fetch(ctx context.Context, runID, worker, name, dest string) error {
 	resp, err := c.do(ctx, http.MethodGet, "/runs/"+runID+"/"+worker+"/"+name, "", nil)
@@ -229,6 +250,18 @@ func runViaController(ctx context.Context, c *ControllerClient, scenarioPath str
 	}
 	fmt.Printf("run %s started on %d of %d worker(s): %s\n", id, len(started.Workers), started.Available, strings.Join(started.Workers, ", "))
 	run, err := c.Wait(ctx, id, poll)
+	if err != nil && ctx.Err() != nil {
+		// Interrupted (Ctrl-C): stop the workers rather than leave the load running,
+		// then carry on with whatever they managed to report.
+		fmt.Fprintln(os.Stderr, "interrupted: aborting the run on the workers...")
+		actx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		ctx = actx
+		if _, aerr := c.Abort(ctx, id); aerr != nil {
+			return nil, aerr
+		}
+		run, err = c.Wait(ctx, id, time.Second)
+	}
 	if err != nil {
 		return nil, err
 	}

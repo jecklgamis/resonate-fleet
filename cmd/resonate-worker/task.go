@@ -20,6 +20,9 @@ const (
 	StatusRunning Status = "running"
 	StatusDone    Status = "done"
 	StatusFailed  Status = "failed"
+
+	// StatusCanceled is a task stopped on request (DELETE /task/{id}) while it ran.
+	StatusCanceled Status = "canceled"
 )
 
 // Task is one submitted scenario run: its own workspace directory (holding the
@@ -44,6 +47,22 @@ type Task struct {
 
 	ArtifactsURL string // where the task's files were uploaded, if an ArtifactStore is configured
 	UploadError  string // why the upload failed, if it did; the run's own status is unaffected
+
+	cancel   context.CancelFunc // stops the running subprocess; nil until Run starts it
+	canceled bool               // Cancel was called, so a non-zero exit is "canceled", not "failed"
+}
+
+// Cancel asks a running task to stop. It reports false when the task is not
+// running (already finished, or never started), so a repeat call is harmless.
+func (t *Task) Cancel() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.Status != StatusRunning || t.cancel == nil {
+		return false
+	}
+	t.canceled = true
+	t.cancel()
+	return true
 }
 
 func (t *Task) setRunning() {
@@ -74,9 +93,13 @@ func (t *Task) finishUploaded(exitCode int, err error, url string, uploadErr err
 func (t *Task) finishLocked(exitCode int, err error) {
 	t.ExitCode = exitCode
 	t.FinishedAt = time.Now()
-	if exitCode == 0 {
+	switch {
+	case t.canceled:
+		t.Status = StatusCanceled
+		t.Err = "canceled"
+	case exitCode == 0:
 		t.Status = StatusDone
-	} else {
+	default:
 		t.Status = StatusFailed
 		if err != nil {
 			t.Err = err.Error()
@@ -238,6 +261,10 @@ func (s *Store) List() []*Task {
 	return out
 }
 
+// cancelGrace is how long a canceled resonate gets to write its reports before
+// it is killed.
+const cancelGrace = 10 * time.Second
+
 // Runner executes resonate against a task's scenario file as a subprocess.
 type Runner struct {
 	ResonateBin string // path to the resonate binary, e.g. from $RESONATE_BIN or "resonate" on $PATH
@@ -253,6 +280,14 @@ type Runner struct {
 // goroutine per task — concurrent tasks run as concurrent subprocesses, with no
 // cap in this minimal version (see README's "Known limitations").
 func (r *Runner) Run(t *Task) {
+	// The cancel func is in place before the task shows as running, so a cancel
+	// that arrives the moment a poller sees "running" always finds it.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.mu.Lock()
+	t.cancel = cancel
+	t.mu.Unlock()
+
 	t.setRunning()
 	log.Printf("task %s: running %s run scenario.yaml", t.ID, r.ResonateBin)
 
@@ -265,12 +300,21 @@ func (r *Runner) Run(t *Task) {
 	}
 	defer logFile.Close()
 
-	cmd := exec.Command(r.ResonateBin, "run", "scenario.yaml",
+	cmd := exec.CommandContext(ctx, r.ResonateBin, "run", "scenario.yaml",
 		"--quiet",
 		"--html-report", "report.html",
 		"--json-report", "report.json",
 		"--results-file", "results.jsonl",
 	)
+	// Ask resonate to stop (so it can still write its reports) and kill it if it
+	// does not within a grace period. Windows has no interrupt, so it is killed.
+	cmd.Cancel = func() error {
+		if err := cmd.Process.Signal(os.Interrupt); err != nil {
+			return cmd.Process.Kill()
+		}
+		return nil
+	}
+	cmd.WaitDelay = cancelGrace
 	cmd.Dir = t.Dir
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
@@ -286,7 +330,9 @@ func (r *Runner) Run(t *Task) {
 		}
 	}
 	r.finish(t, exitCode, runErr)
-	if exitCode == 0 {
+	if st := t.snapshot().Status; st == StatusCanceled {
+		log.Printf("task %s: canceled after %s", t.ID, time.Since(t.CreatedAt).Round(time.Millisecond))
+	} else if exitCode == 0 {
 		log.Printf("task %s: done in %s", t.ID, time.Since(t.CreatedAt).Round(time.Millisecond))
 	} else {
 		log.Printf("task %s: failed (exit %d, err=%v) after %s; see %s", t.ID, exitCode, runErr, time.Since(t.CreatedAt).Round(time.Millisecond), logPath)

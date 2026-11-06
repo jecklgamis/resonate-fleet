@@ -219,4 +219,4 @@ The controller submits to each worker's `POST /task` for you, polls them, and
 `resonatectl` saves every worker's `report.html`, `report.json`, `results.jsonl` and
 `log` under `resonatectl-run-<timestamp>/<worker>/`. A feeder passed with `--data`
 is uploaded to every worker the same way as in [Data files](#data-files-feeders).
-Reports are never combined.
+`resonatectl` also prints a fleet total over all of them; see [Fleet total](resonatectl.md#fleet-total).

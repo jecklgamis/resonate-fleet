@@ -9,8 +9,7 @@ import (
 )
 
 // reportSummary is the subset of resonate's report.json this tool reads for
-// the per-worker table - never the whole report, and never combined across
-// workers (each worker reports its own slice of traffic).
+// the per-worker table. The fleet total is built separately, in aggregate.go.
 type reportSummary struct {
 	Requests       int     `json:"requests"`
 	SuccessRate    float64 `json:"success_rate"`

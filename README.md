@@ -20,7 +20,7 @@ controller when you have more than one.
 
 **resonate-worker**
 - Submit a scenario by multipart upload or by `scenarioUrl` (allowlisted), with feeder and other data files alongside it
-- Poll task status; fetch the report and logs
+- Poll task status; fetch the report and logs; cancel a running task with `DELETE /task/{id}`
 - Refuses absolute paths and `..` in scenario file references
 - Optional upload of task files and results to S3
 - Registers with a controller by heartbeat (with labels) and deregisters on shutdown
@@ -31,12 +31,16 @@ controller when you have more than one.
 - Workers register and heartbeat; entries expire after a TTL (in-memory registry)
 - `GET /workers`, filterable by label (`?label=k=v`)
 - `POST /runs` fans a scenario out to the matching workers, polls them, and proxies each report and log
+- `DELETE /runs/{id}` aborts a run on all its workers
 - Targeting: label filter first, then a random subset with `workers=N` or `workers=P%`
 - Bearer-token auth
 
 **resonatectl**
 - `run` a scenario with data files and see a per-worker results table; `workers` lists the fleet
 - `--label`, `--workers N|P%`, `--out`, `--poll`
+- Fleet total with exact percentiles across all workers, written to `aggregate.json`
+- `--threshold p95<300ms` etc. fail the run (exit 3) so it can gate CI
+- Ctrl-C or `resonatectl abort <run-id>` stops the run on every worker
 - kubectl-style config file with contexts (`config view|use|set-context|delete-context`)
 - Settings resolve flags, then environment, then the current context; warns on a world-readable config holding a token
 
@@ -100,7 +104,7 @@ allowlisted URL (`SCENARIO_SOURCES`) — see the
 
 Running the same scenario against several workers (one per region or AZ)?
 [`resonatectl`](docs/resonatectl.md) runs it on all of them through the
-[controller](docs/controller.md) and collects each report, without merging them.
+[controller](docs/controller.md) and collects each report and prints a merged fleet total, with pass/fail thresholds.
 
 `resonatectl` talks to a controller, not to a worker directly. Even with a single
 worker, the easiest way to use it is to run a controller beside it: it is one small

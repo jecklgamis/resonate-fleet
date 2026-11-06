@@ -8,6 +8,7 @@ worker was started with an `API_TOKEN`. Errors are JSON: `{"error": "<message>"}
 | `POST` | `/task` | Start a task. Either a multipart upload (field `file` = the scenario YAML, plus optional `files` fields for data files such as feeders) or JSON `{"scenarioUrl": "..."}`. `202 Accepted` with `{"taskId": "..."}` |
 | `GET` | `/task` | Every task this worker knows about |
 | `GET` | `/task/{id}` | That task's status |
+| `DELETE` | `/task/{id}` | Cancel a running task: resonate is interrupted (and killed after 10s), and the task ends as `canceled`. `202` if it was running, `200` with the final state if it was not, `404` if unknown |
 | `GET` | `/task/{id}/report.html` | resonate's HTML report |
 | `GET` | `/task/{id}/report.json` | resonate's JSON report |
 | `GET` | `/task/{id}/results.jsonl` | resonate's raw per-request results |
