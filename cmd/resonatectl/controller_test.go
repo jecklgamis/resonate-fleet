@@ -65,9 +65,13 @@ func TestRunViaController(t *testing.T) {
 	out := filepath.Join(dir, "out")
 
 	c := newControllerClient(srv.URL+"/", "ct")
-	results, err := runViaController(t.Context(), c, scenario, startOptions{DataFiles: []string{data}, Labels: []string{"region=sgp1"}, Workers: "25%"}, out, 5*time.Millisecond, nil)
+	outcome, err := runViaController(t.Context(), c, scenario, startOptions{DataFiles: []string{data}, Labels: []string{"region=sgp1"}, Workers: "25%"}, out, 5*time.Millisecond, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	results := outcome.Results
+	if outcome.ID != "r1" {
+		t.Fatalf("run id = %q", outcome.ID)
 	}
 	if len(results) != 2 || results[0].Status != "done" || results[0].Report == nil || results[0].Report.Requests != 9 {
 		t.Fatalf("results = %+v", results)

@@ -280,19 +280,25 @@ func (c *ControllerClient) fetch(ctx context.Context, runID, worker, name, dest 
 	return err
 }
 
+// runOutcome is a finished run: its id and one result per worker.
+type runOutcome struct {
+	ID      string
+	Results []workerResult
+}
+
 // runViaController runs the scenario through the controller and returns one
 // result per worker, with each worker's reports written under outDir/<worker>/.
-func runViaController(ctx context.Context, c *ControllerClient, scenarioPath string, opts startOptions, outDir string, poll time.Duration, live *liveDisplay) ([]workerResult, error) {
+func runViaController(ctx context.Context, c *ControllerClient, scenarioPath string, opts startOptions, outDir string, poll time.Duration, live *liveDisplay) (runOutcome, error) {
 	started, err := c.Start(ctx, scenarioPath, opts)
 	if err != nil {
-		return nil, err
+		return runOutcome{}, err
 	}
 	id := started.ID
 	if started.TotalRateIgnored {
 		// Every worker is running the full, unsplit load: stop it rather than hit
 		// the target at a rate nobody asked for.
 		c.Abort(ctx, id)
-		return nil, fmt.Errorf("this controller does not support --total-rate, so run %s was aborted; upgrade the controller", id)
+		return runOutcome{ID: id}, fmt.Errorf("this controller does not support --total-rate, so run %s was aborted; upgrade the controller", id)
 	}
 	for _, w := range started.Warnings {
 		fmt.Fprintln(os.Stderr, "warning:", w)
@@ -329,12 +335,12 @@ func runViaController(ctx context.Context, c *ControllerClient, scenarioPath str
 		defer cancel()
 		ctx = actx
 		if _, aerr := c.Abort(ctx, id); aerr != nil {
-			return nil, aerr
+			return runOutcome{ID: id}, aerr
 		}
 		run, err = c.Wait(ctx, id, time.Second)
 	}
 	if err != nil {
-		return nil, err
+		return runOutcome{ID: id}, err
 	}
 	var results []workerResult
 	for _, w := range run.Workers {
@@ -358,7 +364,7 @@ func runViaController(ctx context.Context, c *ControllerClient, scenarioPath str
 		}
 		results = append(results, res)
 	}
-	return results, nil
+	return runOutcome{ID: id, Results: results}, nil
 }
 
 // registeredWorker mirrors one entry of the controller's GET /workers.

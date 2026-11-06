@@ -176,13 +176,37 @@ detected and the run is aborted, rather than hit your service at the unsplit rat
 
 ### Fleet total
 
-The total is also written to `resonatectl-run-<timestamp>/aggregate.json`. Request
+The total is also written to `resonatectl-run-<timestamp>/aggregate.json`, and drawn
+over time in [`report.html`](#fleet-report). Request
 and success counts are the sums of each worker's `report.json`, the duration is the
 longest worker's, and throughput is total requests over that duration. Percentiles
 are **exact**: they are computed over every individual request in every worker's
 `results.jsonl`, not averaged from per-worker percentiles (which would be wrong). A
 worker with no report is left out, and a `note:` line says so. A run that was
 aborted, or a worker whose assertions failed, still contributes what it finished.
+
+### Fleet report
+
+`run` also writes `<out>/report.html`: one self-contained page (no scripts, no external
+files, light and dark themes) for the whole run, where each worker's own `report.html`
+covers only its slice. It has:
+
+- tiles for the fleet total (requests, success, throughput, duration, p50, p95, p99, max);
+- the [thresholds](#thresholds), with PASS or FAIL for each;
+- **throughput** (requests and errors per second), **latency** (p50, p95, p99) and a
+  **per-worker** requests-per-second chart, all over time, so a ramp, a dip, or one
+  worker lagging is visible;
+- a workers table with each one's status, requests, success rate, p95, how long after
+  the first worker it began, and a link to its own `report.html`.
+
+The curves are built from every request of every worker, placed by its timestamp, so
+they are the fleet's own and not a sum of the workers' summaries. The tiles are exact;
+the charts read percentiles from 5%-wide buckets, so they are within about 5%. A run
+longer than 600 seconds is drawn in steps of several seconds. The time axis is only as
+aligned as the workers' clocks (the report shows each worker's start offset). Building
+it streams the result files: a million requests take under a second.
+
+No report is written if no worker produced one.
 
 ### Thresholds
 

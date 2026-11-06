@@ -45,6 +45,7 @@ controller when you have more than one.
 - `--total-rate R` makes R the whole fleet's rate (scaled and split across workers, stages included); `--start-delay` starts every worker together
 - Live fleet view: a one-line status during `run`, and `resonatectl watch <run-id>` for a per-worker table
 - Fleet total with exact percentiles across all workers, written to `aggregate.json`
+- `report.html`: one self-contained fleet report with throughput, latency and per-worker charts over time
 - `--threshold p95<300ms` etc. fail the run (exit 3) so it can gate CI
 - Ctrl-C or `resonatectl abort <run-id>` stops the run on every worker
 - kubectl-style config file with contexts (`config view|use|set-context|delete-context`)

@@ -190,11 +190,12 @@ func runCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: --live must be auto, on or off, not %q\n", *liveMode)
 		return 2
 	}
-	results, err := runViaController(ctx, c, scenario, startOptions{DataFiles: dataFiles, Labels: *cf.labels, Workers: *workers, TotalRate: *totalRate, StartDelay: *startDelay}, *outDir, *poll, live)
+	outcome, err := runViaController(ctx, c, scenario, startOptions{DataFiles: dataFiles, Labels: *cf.labels, Workers: *workers, TotalRate: *totalRate, StartDelay: *startDelay}, *outDir, *poll, live)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
 	}
+	results := outcome.Results
 	printTable(os.Stdout, results)
 	for _, r := range results {
 		if r.Warning != "" {
@@ -211,6 +212,18 @@ func runCmd(args []string) int {
 	checks := evalThresholds(thresholds, agg)
 	printThresholds(os.Stdout, checks)
 	fmt.Printf("\nreports in %s\n", *outDir)
+	if agg != nil {
+		reportPath := filepath.Join(*outDir, "report.html")
+		err := writeFleetReport(reportPath, reportInput{
+			RunID: outcome.ID, Scenario: filepath.Base(scenario), Generated: time.Now(), Version: version,
+			Aggregate: agg, Results: results, Thresholds: checks, Series: buildSeries(*outDir, results),
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "warning: writing report.html:", err)
+		} else {
+			fmt.Printf("fleet report: %s\n", reportPath)
+		}
+	}
 	switch {
 	case anyFailed(results):
 		return 1
