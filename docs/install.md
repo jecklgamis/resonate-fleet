@@ -8,7 +8,7 @@ Download the archive for your platform from the
 they run, so there is nothing else to install:
 
 ```sh
-VERSION=v1.0.0-alpha.5   # a release tag
+VERSION=v1.0.0-alpha.6   # a release tag
 curl -fsSLO https://github.com/jecklgamis/resonate-fleet/releases/download/$VERSION/resonate-fleet_${VERSION}_darwin_arm64.tar.gz
 tar -xzf resonate-fleet_${VERSION}_darwin_arm64.tar.gz && cd resonate-fleet_${VERSION}_darwin_arm64
 API_TOKEN=some-secret-token ./resonate-worker   # listens on :58080
