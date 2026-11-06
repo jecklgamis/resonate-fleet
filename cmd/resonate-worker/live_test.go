@@ -156,5 +156,14 @@ func TestLiveEndpointUnknownTaskAndQueuedTask(t *testing.T) {
 	if code != http.StatusOK || st.Status != StatusQueued || st.Requests != 0 {
 		t.Fatalf("queued task: %d %+v", code, st)
 	}
+	// Cancel it and wait for it to finish: its goroutine writes task.json into the
+	// test's temp dir, and returning first races the dir's cleanup.
 	del(mux, "/task/"+resp["taskId"])
+	task, _ := srv.Store.Get(resp["taskId"])
+	for i := 0; i < 500 && task.snapshot().Status == StatusQueued; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st := task.snapshot().Status; st != StatusCanceled {
+		t.Fatalf("status = %s, want canceled", st)
+	}
 }
