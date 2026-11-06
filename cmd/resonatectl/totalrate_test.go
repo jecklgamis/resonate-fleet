@@ -76,7 +76,7 @@ func TestOlderControllerIgnoringTotalRateAbortsTheRun(t *testing.T) {
 	defer srv.Close()
 
 	_, err := runViaController(t.Context(), newControllerClient(srv.URL, ""), scenarioFile(t),
-		startOptions{TotalRate: 100}, t.TempDir(), time.Millisecond)
+		startOptions{TotalRate: 100}, t.TempDir(), time.Millisecond, nil)
 	if err == nil || !strings.Contains(err.Error(), "does not support --total-rate") {
 		t.Fatalf("err = %v", err)
 	}

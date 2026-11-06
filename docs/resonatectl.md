@@ -209,6 +209,37 @@ THRESHOLDS
 With no usable report, every threshold fails rather than passing on no data. Quote
 the expression so your shell doesn't treat `<` and `>` as redirects.
 
+### Watching a run
+
+While `run` waits, it shows the whole fleet on one line, redrawn in place:
+
+```
+[13s] 3/3 workers  55.2 req/s  735 req  err 0.00%  p50 2.48ms  p95 3.16ms  p99 3.85ms
+```
+
+That is on by default on a terminal and off otherwise, so CI logs stay clean;
+`--live on` prints a plain line every 5 seconds anywhere, and `--live off` turns it off.
+The line goes to stderr, so the results table on stdout is unaffected.
+
+`resonatectl watch <run-id>` follows a run that is already going, whoever started it,
+with a row per worker:
+
+```
+run dcc10978ac76766a  running  6s
+WORKER  STATUS   REQUESTS  ERRORS  REQ/S  P95     NOTE
+w0      running  122       0       20.2   4.24ms
+w1      running  122       0       20.2   4.68ms
+w2      running  122       0       20.2   4.45ms
+FLEET            366       0       60.6   4.68ms  p50 2.48ms  p99 15.83ms  max 16.39ms
+```
+
+It ends when the run does (exit `0` if the run finished `done`, `1` if it failed or was
+canceled). **Ctrl-C only stops watching**; the run keeps going, unlike Ctrl-C on `run`,
+which aborts it. The rate and latency are over the last 10 seconds, and the FLEET row's
+percentiles are the whole fleet's; see [Watching a run](controller.md#watching-a-run)
+on how they are computed and how precise they are. A controller without a live view
+(an older one) is reported as an error rather than waited on.
+
 ### Stopping a run
 
 Ctrl-C while `run` is waiting aborts the run on every worker (they stop generating

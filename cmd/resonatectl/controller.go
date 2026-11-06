@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -281,7 +282,7 @@ func (c *ControllerClient) fetch(ctx context.Context, runID, worker, name, dest 
 
 // runViaController runs the scenario through the controller and returns one
 // result per worker, with each worker's reports written under outDir/<worker>/.
-func runViaController(ctx context.Context, c *ControllerClient, scenarioPath string, opts startOptions, outDir string, poll time.Duration) ([]workerResult, error) {
+func runViaController(ctx context.Context, c *ControllerClient, scenarioPath string, opts startOptions, outDir string, poll time.Duration, live *liveDisplay) ([]workerResult, error) {
 	started, err := c.Start(ctx, scenarioPath, opts)
 	if err != nil {
 		return nil, err
@@ -306,7 +307,20 @@ func runViaController(ctx context.Context, c *ControllerClient, scenarioPath str
 	if !started.StartAt.IsZero() {
 		fmt.Printf("all workers start at %s (in %s)\n", started.StartAt.Local().Format("15:04:05.000"), time.Until(started.StartAt).Round(100*time.Millisecond))
 	}
+	stopLive := func() {}
+	if live != nil {
+		lctx, cancel := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			if _, err := live.follow(lctx, c, id); errors.As(err, new(permanentError)) {
+				fmt.Fprintln(os.Stderr, "warning: no live view:", err)
+			}
+		}()
+		stopLive = func() { cancel(); <-done; live.erase() }
+	}
 	run, err := c.Wait(ctx, id, poll)
+	stopLive()
 	if err != nil && ctx.Err() != nil {
 		// Interrupted (Ctrl-C): stop the workers rather than leave the load running,
 		// then carry on with whatever they managed to report.

@@ -49,8 +49,20 @@ type Task struct {
 	ArtifactsURL string // where the task's files were uploaded, if an ArtifactStore is configured
 	UploadError  string // why the upload failed, if it did; the run's own status is unaffected
 
+	live     *Live              // request tally for GET /task/{id}/live; nil until Run starts the subprocess
 	cancel   context.CancelFunc // stops the running subprocess; nil until Run starts it
 	canceled bool               // Cancel was called, so a non-zero exit is "canceled", not "failed"
+}
+
+// LiveStats is the task's request tally with its current status, for
+// GET /task/{id}/live. A task that has not started has zeros.
+func (t *Task) LiveStats(now time.Time) LiveStats {
+	t.mu.Lock()
+	live, status := t.live, t.Status
+	t.mu.Unlock()
+	st := live.Snapshot(now)
+	st.Status = status
+	return st
 }
 
 // Cancel asks a queued or running task to stop. It reports false when the task has
@@ -352,9 +364,24 @@ func (r *Runner) Run(t *Task) {
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 
+	// Tally the requests live, whether or not metrics are exported anywhere.
+	live := NewLive(time.Now())
+	t.mu.Lock()
+	t.live = live
+	t.mu.Unlock()
+	liveCtx, stopLive := context.WithCancel(context.Background())
+	liveDone := make(chan struct{})
+	go func() {
+		defer close(liveDone)
+		tailResults(liveCtx, filepath.Join(t.Dir, "results.jsonl"), func(res resultLine) { live.Record(res, time.Now()) })
+	}()
+
 	stopMetrics := r.Metrics.TrackTask(filepath.Join(t.Dir, "results.jsonl"))
 	runErr := cmd.Run()
 	stopMetrics()
+	stopLive()
+	<-liveDone
+	live.Finish(time.Now())
 	exitCode := 0
 	if runErr != nil {
 		exitCode = 1

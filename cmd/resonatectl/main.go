@@ -20,6 +20,7 @@ import (
 
 const usage = `usage:
   resonatectl run [flags] <scenario.yaml|scenario-url>   run a scenario on the registered workers
+  resonatectl watch [flags] <run-id>                     follow a run live: rate, errors, latency per worker
   resonatectl abort [flags] <run-id>                     stop a run on all its workers
   resonatectl workers [flags]                            list the registered workers
   resonatectl config view                                show the contexts in the config file
@@ -41,6 +42,8 @@ flags (run, workers):
   --start-delay D    (run) every worker waits D (default 5s) so they start together; 0
                      starts each as it receives the scenario. Needs workers' clocks in
                      sync (NTP); a drifting clock is reported.
+  --live auto|on|off (run) live rate and latency line while the run goes; auto = on a
+                     terminal only. Ctrl-C there aborts the run; in watch it only detaches.
   --threshold EXPR   (run) fail unless the fleet total meets it, e.g. p95<300ms,
                      success_rate>=99%, error_rate<1%, rps>=100 (repeatable)
 
@@ -71,6 +74,8 @@ func main() {
 		os.Exit(runCmd(args[1:]))
 	case "abort":
 		os.Exit(abortCmd(args[1:]))
+	case "watch":
+		os.Exit(watchCmd(args[1:]))
 	case "workers":
 		os.Exit(workersCmd(args[1:]))
 	case "config":
@@ -129,6 +134,7 @@ func runCmd(args []string) int {
 	cf := commonFlags(fs)
 	var dataFiles, thresholdExprs multiFlag
 	fs.Var(&thresholdExprs, "threshold", "Fail unless the fleet total meets this, like p95<300ms or success_rate>=99% (repeatable)")
+	liveMode := fs.String("live", "auto", "Show the run's live rate and latency while it goes: auto (on a terminal), on, or off")
 	fs.Var(&dataFiles, "data", "A feeder/body file to upload with the scenario (repeatable; not with a scenario URL)")
 	workers := fs.String("workers", "", "Run on a random subset of the matching workers: a count (4) or a percentage (25%); default all")
 	totalRate := fs.Float64("total-rate", 0, "Make this the fleet's peak request rate: scale the scenario's load to it and split it across the workers (default: every worker runs the scenario as written)")
@@ -171,7 +177,20 @@ func runCmd(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	results, err := runViaController(ctx, c, scenario, startOptions{DataFiles: dataFiles, Labels: *cf.labels, Workers: *workers, TotalRate: *totalRate, StartDelay: *startDelay}, *outDir, *poll)
+	var live *liveDisplay
+	switch *liveMode {
+	case "auto":
+		if isTerminal(os.Stderr) {
+			live = newLiveDisplay(os.Stderr, false)
+		}
+	case "on":
+		live = newLiveDisplay(os.Stderr, false)
+	case "off":
+	default:
+		fmt.Fprintf(os.Stderr, "error: --live must be auto, on or off, not %q\n", *liveMode)
+		return 2
+	}
+	results, err := runViaController(ctx, c, scenario, startOptions{DataFiles: dataFiles, Labels: *cf.labels, Workers: *workers, TotalRate: *totalRate, StartDelay: *startDelay}, *outDir, *poll, live)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return 1
@@ -210,6 +229,41 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 		}
 	})
 	return set
+}
+
+// watchCmd follows a run that is already going (started by this tool or anything
+// else), drawing a per-worker table until it ends. Ctrl-C only stops watching; the
+// run keeps going.
+func watchCmd(args []string) int {
+	fs := flag.NewFlagSet("watch", flag.ExitOnError)
+	cf := commonFlags(fs)
+	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage); fs.PrintDefaults() }
+	id, flagArgs := extractPositional(args)
+	fs.Parse(flagArgs)
+	if id == "" || fs.NArg() != 0 {
+		fs.Usage()
+		return 2
+	}
+	c, err := cf.client()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	last, err := newLiveDisplay(os.Stdout, true).follow(ctx, c, id)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		return 1
+	}
+	switch {
+	case last.Status == "done":
+		return 0
+	case last.Status == "running": // interrupted
+		fmt.Fprintf(os.Stderr, "\nstopped watching; run %s is still going (resonatectl abort %s stops it)\n", id, id)
+		return 0
+	}
+	return 1
 }
 
 func abortCmd(args []string) int {

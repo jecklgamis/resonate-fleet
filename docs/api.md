@@ -8,6 +8,7 @@ worker was started with an `API_TOKEN`. Errors are JSON: `{"error": "<message>"}
 | `POST` | `/task[?startAt=T]` | Start a task. Either a multipart upload (field `file` = the scenario YAML, plus optional `files` fields for data files such as feeders) or JSON `{"scenarioUrl": "..."}`. `202 Accepted` with `{"taskId": "..."}`. With `startAt` (an RFC 3339 time, at most 10 minutes ahead) the task waits `queued` until then; the response then also has `startAt` and `now` (the worker's clock). `400` for a bad `startAt` |
 | `GET` | `/task` | Every task this worker knows about |
 | `GET` | `/task/{id}` | That task's status |
+| `GET` | `/task/{id}/live` | The task's request rate, errors and latency as it runs. Always `200` for a known task; zeros before it has started |
 | `DELETE` | `/task/{id}` | Cancel a running task: resonate is interrupted (and killed after 10s), and the task ends as `canceled`. `202` if it was running, `200` with the final state if it was not, `404` if unknown |
 | `GET` | `/task/{id}/report.html` | resonate's HTML report |
 | `GET` | `/task/{id}/report.json` | resonate's JSON report |
@@ -88,6 +89,24 @@ complaint in the [log](#get-taskidlog).
 | `finished_at` | When the run ended. Until then it is the zero timestamp `0001-01-01T00:00:00Z` |
 
 Unknown ids return `404` with `{"error":"no such task"}`.
+
+## `GET /task/{id}/live`
+
+```json
+{
+  "status": "running", "elapsed_ms": 11000,
+  "requests": 214, "errors": 0, "rps": 18.4, "window_s": 10,
+  "latency_ms": {"p50": 2.4, "p95": 3.2, "p99": 3.5, "max": 4.0},
+  "buckets": {"112": 190, "113": 24}
+}
+```
+
+The worker counts requests as `resonate` writes them to `results.jsonl`, whether or
+not metrics are exported. `requests` and `errors` (a response of 400 or more, or none
+at all) are the whole run so far. `rps`, `latency_ms` and `buckets` cover the last
+`window_s` seconds; after the task has finished `window_s` is absent and they cover the
+whole run. `buckets` is the latency histogram those percentiles came from (bucket `i`
+holds latencies up to `0.01 * 1.05^i` ms), which the controller adds across workers.
 
 ## `GET /task`
 

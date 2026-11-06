@@ -10,6 +10,7 @@ ENV PATH=/usr/local/go/bin:$PATH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
+COPY internal ./internal
 COPY cmd/resonate-controller ./cmd/resonate-controller
 RUN CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o /out/resonate-controller ./cmd/resonate-controller
 

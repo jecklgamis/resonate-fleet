@@ -26,6 +26,7 @@ controller when you have more than one.
 - Optional upload of task files and results to S3
 - Registers with a controller by heartbeat (with labels) and deregisters on shutdown
 - Live metrics pushed over OTLP while a run is going ([Metrics](docs/metrics.md))
+- `GET /task/{id}/live`: request rate, errors and latency over the last 10 seconds
 - Bearer-token auth; the Docker image bundles `resonate`
 
 **resonate-controller**
@@ -33,6 +34,7 @@ controller when you have more than one.
 - `GET /workers`, filterable by label (`?label=k=v`)
 - `POST /runs` fans a scenario out to the matching workers, polls them, and proxies each report and log
 - `DELETE /runs/{id}` aborts a run on all its workers
+- `GET /runs/{id}/live` merges the workers' live stats into one fleet view, with fleet-wide percentiles
 - `total_rate` splits one fleet-wide rate across the workers; `start_delay` gives them a shared start time
 - Targeting: label filter first, then a random subset with `workers=N` or `workers=P%`
 - Bearer-token auth
@@ -41,6 +43,7 @@ controller when you have more than one.
 - `run` a scenario with data files and see a per-worker results table; `workers` lists the fleet
 - `--label`, `--workers N|P%`, `--out`, `--poll`
 - `--total-rate R` makes R the whole fleet's rate (scaled and split across workers, stages included); `--start-delay` starts every worker together
+- Live fleet view: a one-line status during `run`, and `resonatectl watch <run-id>` for a per-worker table
 - Fleet total with exact percentiles across all workers, written to `aggregate.json`
 - `--threshold p95<300ms` etc. fail the run (exit 3) so it can gate CI
 - Ctrl-C or `resonatectl abort <run-id>` stops the run on every worker

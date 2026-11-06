@@ -68,6 +68,7 @@ All requests need `Authorization: Bearer $CONTROLLER_TOKEN` when it is set.
 | `GET` | `/workers[?label=k=v]` | Live workers (repeat `label` to require several) |
 | `POST` | `/runs[?label=k=v][&workers=N\|P%][&total_rate=R][&start_delay=D]` | Start a run on the matching live workers, or on a random `N` or `P%` of them (see below). Multipart (`file`, plus optional `files`) or JSON `{"scenarioUrl": "..."}`. `total_rate` splits one fleet-wide rate across the workers, and `start_delay` makes them all start together (see below). `202` with `{"runId", "workers", "available"}`, plus `totalRate` and `warnings` with `total_rate` and `startAt` with `start_delay`; `409` if none match or fewer are live than asked for; `400` for a bad `workers`, `total_rate` or `start_delay` |
 | `GET` | `/runs/{id}` | Run status with one row per worker |
+| `GET` | `/runs/{id}/live` | What the run is doing right now, across all its workers (see [Watching a run](#watching-a-run)) |
 | `DELETE` | `/runs/{id}` | Abort a run: each worker still running is told to cancel its task. `202` with `{"runId", "aborted": [workers]}`; `200` with none if the run had already finished. The run ends as `canceled` |
 | `GET` | `/runs/{id}/{worker}/{file}` | A worker's `report.html`, `report.json`, `results.jsonl` or `log`, proxied |
 
@@ -125,6 +126,33 @@ rewrites the scenario's `load:` block, one copy per worker, and the copies add u
 
 `resonate` itself runs a few percent over the nominal rate, mostly in its first
 second, so expect the measured fleet rate to land slightly above R.
+
+### Watching a run
+
+`GET /runs/{id}/live` polls every worker's [`/task/{id}/live`](api.md#get-taskidlive)
+at once and combines them:
+
+```json
+{
+  "id": "dcc10978ac76766a", "status": "running", "elapsed_ms": 11000,
+  "reporting": 3, "requests": 642, "errors": 0, "error_rate": 0, "rps": 55.2,
+  "latency_ms": {"p50": 2.36, "p95": 3.16, "p99": 3.49, "max": 3.96},
+  "workers": [{"name": "w0", "status": "running", "requests": 214, "errors": 0, "rps": 18.4, "p95_ms": 3.16}]
+}
+```
+
+`requests` and `errors` are the whole run so far. While the run is going, `rps` and
+the latency percentiles cover **the last 10 seconds**, so a problem shows as it starts
+instead of being averaged away by the run so far; once it is over they cover the whole
+run. The percentiles are the fleet's own: each worker sends a small latency histogram
+and the controller adds them, so they are not an average of the workers' percentiles.
+They are read from buckets 5% wide, so they are within about 5% of the exact value
+(the [fleet total](resonatectl.md#fleet-total) after the run is exact).
+
+A worker that is unreachable, has no task yet, or predates live stats gets a `note`
+instead of numbers and is left out of the totals (`reporting` counts the rest). Each
+call polls the workers, so a few watchers at a second apiece is fine; it isn't meant
+for a crowd.
 
 ### Starting together
 

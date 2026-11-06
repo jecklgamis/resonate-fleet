@@ -41,6 +41,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /runs", s.handleStartRun)
 	mux.HandleFunc("GET /runs/{id}", s.handleRun)
 	mux.HandleFunc("DELETE /runs/{id}", s.handleAbort)
+	mux.HandleFunc("GET /runs/{id}/live", s.handleLive)
 	mux.HandleFunc("GET /runs/{id}/{worker}/{file}", s.handleReport)
 }
 
@@ -265,6 +266,16 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, run.snapshot())
+}
+
+// handleLive reports what a run is doing right now across its workers.
+func (s *Server) handleLive(w http.ResponseWriter, r *http.Request) {
+	run, ok := s.Runs.Get(r.PathValue("id"))
+	if !ok {
+		writeError(w, http.StatusNotFound, fmt.Errorf("no such run"))
+		return
+	}
+	writeJSON(w, http.StatusOK, s.Runs.Live(r.Context(), run))
 }
 
 // handleAbort stops a run's workers. It answers 202 with the workers it asked to
