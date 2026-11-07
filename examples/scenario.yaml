@@ -1,10 +1,7 @@
 protocol: http
 
-# Ramp up, hold, ramp down. Each worker runs the whole schedule, so with N workers
-# the fleet sends about N times this rate. For a constant load, replace stages with:
-#   duration: 10s
-#   rate: 20
-#   workers: 5
+# POSTs a random JSON payload on every request: a fresh UUID, random numbers, strings,
+# booleans and a pick from a list. Point `url` at the service you want to load (the http-sink target is kept below).
 load:
   stages:
     - { duration: 10s, rate: 20, workers: 5 }
@@ -15,12 +12,23 @@ http:
   timeout: 5s
   targets:
     - name: sink
-      method: GET
-      url: http://localhost:8080/health   # point this at the service you want to load
-      query: { user: "{{ .Feeder.user }}" }   # a value from the feeder rows below
+      method: POST
+      url: https://http-sink.jecklgamis.com/sink
       headers:
+        Content-Type: application/json
         Accept: application/json
-      expect_status: [200]
+      body: |
+        {
+          "id": "{{ uuid }}",
+          "user": "{{ .Feeder.user }}",
+          "sku": "{{ randString 8 }}",
+          "quantity": {{ randInt 1 10 }},
+          "price": {{ randFloat 1 500 }},
+          "priority": "{{ randChoice "low" "normal" "high" }}",
+          "gift": {{ randBool }},
+          "note": "{{ randString 24 }}"
+        }
+      expect_status: [200, 201, 202]
   feeder:
     mode: random
     rows:
@@ -28,16 +36,8 @@ http:
       - { user: bob }
       - { user: carol }
 
-# Checked by resonate on each worker; a failure ends that worker's task as "failed".
-# To also gate the combined fleet total, pass thresholds to resonatectl:
-#   resonatectl run examples/scenario.yaml \
-#     --threshold 'p95<300ms' --threshold 'success_rate>=99%' --threshold 'rps>=50'
 assertions:
   - metric: success_rate
     min: "0.99"
   - metric: latency_p95
     max: 500ms
-  - metric: latency_p99
-    max: 1s
-    abort: true          # stop early if p99 is blown...
-    abort_after: 10s     # ...once the run has warmed up
